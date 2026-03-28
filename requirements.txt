@@ -1,0 +1,6 @@
+duckdb
+pandas
+numpy
+pytest
+fastapi
+uvicorn
