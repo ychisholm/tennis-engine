@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Tennis Debug UI (Vite)",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "debug_ui"],
+      "port": 5173
+    },
+    {
+      "name": "Tennis Live Dashboard",
+      "runtimeExecutable": ".venv/bin/python",
+      "runtimeArgs": ["-c", "import sys; sys.path.insert(0,'.'); from src.live.backend import app; import uvicorn; uvicorn.run(app, host='0.0.0.0', port=8000, log_level='warning')"],
+      "port": 8000
+    }
+  ]
+}

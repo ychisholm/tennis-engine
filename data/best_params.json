@@ -1,0 +1,7 @@
+{
+  "lambda": 10,
+  "k": 0.04,
+  "sigma": 40,
+  "brier_train": 0.179443,
+  "brier_test": 0.230354
+}

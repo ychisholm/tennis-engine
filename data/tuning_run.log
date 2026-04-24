@@ -1,0 +1,76 @@
+==============================================================
+Component 6B — Parameter Tuning
+==============================================================
+
+Loading match IDs (year >= 2000, tour=ATP)...
+Total charted matches found: 6224
+Capped to 200 matches (--max-matches flag).
+Train set :   160 matches
+Test set  :    40 matches
+
+Preloading training match data from DB...
+Usable training matches (≥10 pts): 160
+
+Running grid search: 7×5×6 = 210 combinations
+--------------------------------------------------------------
+  [ 10/210]  lambda= 2  k=0.06  sigma=30  brier=0.186016  (best so far: 0.179950)
+  [ 20/210]  lambda= 2  k=0.10  sigma=20  brier=0.214053  (best so far: 0.179950)
+  [ 30/210]  lambda= 2  k=0.12  sigma=40  brier=0.196493  (best so far: 0.179950)
+  [ 40/210]  lambda= 3  k=0.06  sigma=30  brier=0.185665  (best so far: 0.179815)
+  [ 50/210]  lambda= 3  k=0.10  sigma=20  brier=0.213466  (best so far: 0.179815)
+  [ 60/210]  lambda= 3  k=0.12  sigma=40  brier=0.195898  (best so far: 0.179815)
+  [ 70/210]  lambda= 4  k=0.06  sigma=30  brier=0.185416  (best so far: 0.179715)
+  [ 80/210]  lambda= 4  k=0.10  sigma=20  brier=0.213103  (best so far: 0.179715)
+  [ 90/210]  lambda= 4  k=0.12  sigma=40  brier=0.195490  (best so far: 0.179715)
+  [100/210]  lambda= 5  k=0.06  sigma=30  brier=0.185232  (best so far: 0.179638)
+  [110/210]  lambda= 5  k=0.10  sigma=20  brier=0.212868  (best so far: 0.179638)
+  [120/210]  lambda= 5  k=0.12  sigma=40  brier=0.195199  (best so far: 0.179638)
+  [130/210]  lambda= 6  k=0.06  sigma=30  brier=0.185093  (best so far: 0.179578)
+  [140/210]  lambda= 6  k=0.10  sigma=20  brier=0.212716  (best so far: 0.179578)
+  [150/210]  lambda= 6  k=0.12  sigma=40  brier=0.194988  (best so far: 0.179578)
+  [160/210]  lambda= 8  k=0.06  sigma=30  brier=0.184909  (best so far: 0.179495)
+  [170/210]  lambda= 8  k=0.10  sigma=20  brier=0.212568  (best so far: 0.179495)
+  [180/210]  lambda= 8  k=0.12  sigma=40  brier=0.194721  (best so far: 0.179495)
+  [190/210]  lambda=10  k=0.06  sigma=30  brier=0.184801  (best so far: 0.179443)
+  [200/210]  lambda=10  k=0.10  sigma=20  brier=0.212540  (best so far: 0.179443)
+  [210/210]  lambda=10  k=0.12  sigma=40  brier=0.194577  (best so far: 0.179443)
+
+Top 10 parameter combinations (lowest Brier score first):
+  Rank  lambda       k  sigma       Brier
+  --------------------------------------
+     1      10    0.04     40    0.179443
+     2       8    0.04     40    0.179495
+     3       6    0.04     40    0.179578
+     4       5    0.04     40    0.179638
+     5       4    0.04     40    0.179715
+     6       3    0.04     40    0.179815
+     7      10    0.04     35    0.179893
+     8       2    0.04     40    0.179950
+     9       8    0.04     35    0.179953
+    10       6    0.04     35    0.180050
+
+Best combination: lambda=10,  k=0.04,  sigma=40
+Brier score (train): 0.179443
+
+Full results table saved → data/tuning_results.csv
+
+Preloading held-out test data from DB...
+Usable test matches (≥10 pts): 40
+Evaluating best parameters on held-out test set...
+
+  Brier score (train):     0.179443
+  Brier score (test) :     0.230354
+  Train/test gap     :     0.050912  →  POSSIBLE OVERFITTING — gap 0.0509 exceeds 0.01
+
+Best parameters saved      → config/best_params.json
+
+==============================================================
+SUMMARY
+==============================================================
+  Best lambda  : 10
+  Best k       : 0.04
+  Best sigma   : 40
+  Brier train  : 0.179443
+  Brier test   : 0.230354
+  Gap          : 0.050912  →  POSSIBLE OVERFITTING — gap 0.0509 exceeds 0.01
+==============================================================

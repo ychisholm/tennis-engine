@@ -1,0 +1,17 @@
+[Unit]
+Description=Tennis Prediction Engine
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/tennis-engine
+ExecStart=/home/ubuntu/tennis-engine/.venv/bin/python scripts/run_collector.py
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+EnvironmentFile=/home/ubuntu/tennis-engine/.env
+
+[Install]
+WantedBy=multi-user.target

@@ -11,9 +11,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
-# Make src/ importable regardless of how pytest is invoked.
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from data_pipeline import run_pipeline  # noqa: E402
+from src.pipeline.data_pipeline import run_pipeline  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Minimal CSV content — one header row + one data row per file.
