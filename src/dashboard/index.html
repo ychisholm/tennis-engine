@@ -847,6 +847,106 @@ function LiveScrubber({ total, scrubIdx, onScrub, onLive }) {
   );
 }
 
+// ─── Upcoming Section ───────────────────────────────────────────────────────
+
+function UpcomingSection() {
+  const [upcoming, setUpcoming] = useState([]);
+  const [error,    setError]    = useState(null);
+
+  const fetchUpcoming = useCallback(async () => {
+    try {
+      const data = await fetch('/upcoming_matches').then(r => r.json());
+      setUpcoming(Array.isArray(data) ? data : []);
+      setError(null);
+    } catch(e) { setError(e.message); }
+  }, []);
+
+  useEffect(() => {
+    fetchUpcoming();
+    const id = setInterval(fetchUpcoming, 5 * 60 * 1000); // 5 minutes
+    return () => clearInterval(id);
+  }, [fetchUpcoming]);
+
+  const fmtTime = unix =>
+    new Date(unix * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const fmtDay = unix => {
+    const d = new Date(unix * 1000), now = new Date();
+    const tom = new Date(now); tom.setDate(now.getDate() + 1);
+    if (d.toDateString() === now.toDateString()) return 'Today';
+    if (d.toDateString() === tom.toDateString()) return 'Tomorrow';
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
+  const renderTourGroup = (matches, label) => {
+    if (!matches.length) return null;
+    const sorted = [...matches].sort((a, b) => a.scheduled_start_unix - b.scheduled_start_unix);
+    const groups = new Map();
+    for (const m of sorted) {
+      if (!groups.has(m.tournament)) groups.set(m.tournament, []);
+      groups.get(m.tournament).push(m);
+    }
+    return (
+      <div style={{marginBottom:24}}>
+        <div className="lobby-col-hdr" style={{marginBottom:10}}>{label}</div>
+        {[...groups.entries()].map(([tourney, ms]) => (
+          <div key={tourney} style={{marginBottom:14}}>
+            <div style={{
+              fontSize:'0.65rem', letterSpacing:'0.12em', textTransform:'uppercase',
+              color:'#6e7681', marginBottom:5, paddingLeft:2,
+            }}>{tourney}</div>
+            {ms.map(m => (
+              <div key={m.match_id} style={{
+                display:'flex', alignItems:'center', gap:10,
+                padding:'5px 2px', borderBottom:'1px solid #1c2128',
+                fontSize:'0.82rem',
+              }}>
+                <span style={{
+                  minWidth:44, fontVariantNumeric:'tabular-nums',
+                  fontSize:'0.75rem', color:'#58a6ff',
+                }}>
+                  {fmtTime(m.scheduled_start_unix)}
+                </span>
+                <span style={{minWidth:52, fontSize:'0.65rem', color:'#484f58'}}>
+                  {fmtDay(m.scheduled_start_unix)}
+                </span>
+                <span style={{color:'#6e7681', fontSize:'0.7rem', minWidth:110, flexShrink:0,
+                              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                  {m.tournament}
+                </span>
+                <span style={{color:'#c9d1d9'}}>
+                  {m.player_a} <span style={{color:'#484f58'}}>vs</span> {m.player_b}
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const atp   = upcoming.filter(m => m.tour === 'ATP');
+  const wta   = upcoming.filter(m => m.tour === 'WTA');
+  const hasAny = atp.length > 0 || wta.length > 0;
+
+  return (
+    <div style={{marginTop:32}}>
+      <div style={{
+        display:'flex', alignItems:'center', gap:12,
+        borderTop:'1px solid #21262d', paddingTop:20, marginBottom:20,
+      }}>
+        <h2 style={{margin:0}}>Upcoming</h2>
+        <span className="badge">Today &amp; Tomorrow · auto-refresh 5m</span>
+      </div>
+      {error && <div style={{color:'#f85149',fontSize:'0.8rem',marginBottom:8}}>⚠ {error}</div>}
+      {!hasAny
+        ? <p className="empty">No upcoming matches scheduled</p>
+        : <>{renderTourGroup(atp, 'ATP')}{renderTourGroup(wta, 'WTA')}</>
+      }
+    </div>
+  );
+}
+
 // ─── Live Tab — two-level: Lobby → MatchDetail ──────────────────────────────
 
 function MatchCard({ match, onClick }) {
@@ -924,16 +1024,19 @@ function Lobby({ onSelect }) {
   };
 
   return (
-    <div className="lobby-cols">
-      <div style={{alignSelf:'flex-start'}}>
-        <div className="lobby-col-hdr">ATP</div>
-        {renderColumn(atpMatches, 'No live ATP matches')}
+    <>
+      <div className="lobby-cols">
+        <div style={{alignSelf:'flex-start'}}>
+          <div className="lobby-col-hdr">ATP</div>
+          {renderColumn(atpMatches, 'No live ATP matches')}
+        </div>
+        <div style={{alignSelf:'flex-start'}}>
+          <div className="lobby-col-hdr">WTA</div>
+          {renderColumn(wtaMatches, 'No live WTA matches')}
+        </div>
       </div>
-      <div style={{alignSelf:'flex-start'}}>
-        <div className="lobby-col-hdr">WTA</div>
-        {renderColumn(wtaMatches, 'No live WTA matches')}
-      </div>
-    </div>
+      <UpcomingSection />
+    </>
   );
 }
 

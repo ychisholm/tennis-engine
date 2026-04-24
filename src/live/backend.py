@@ -1,17 +1,33 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+from typing import Any
 
 import duckdb
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
 from src.live.collector import ACTIVE_MATCH_IDS
+from src.live.tennis_feed import TennisFeed
+
+_log = logging.getLogger(__name__)
 
 _DB_PATH   = Path(__file__).resolve().parents[2] / "data" / "processed" / "tennis.duckdb"
 _DASHBOARD = Path(__file__).resolve().parents[2] / "src" / "dashboard" / "index.html"
 
 app = FastAPI(title="Tennis Engine")
+
+# Lazy singleton — created on first /upcoming_matches request so the backend
+# can start even if RAPIDAPI_KEY isn't set yet.
+_feed: TennisFeed | None = None
+
+
+def _get_feed() -> TennisFeed:
+    global _feed
+    if _feed is None:
+        _feed = TennisFeed()
+    return _feed
 
 
 def _conn() -> duckdb.DuckDBPyConnection:
@@ -141,6 +157,15 @@ def dashboard():
     if not _DASHBOARD.exists():
         raise HTTPException(status_code=404, detail="Dashboard HTML not found")
     return FileResponse(str(_DASHBOARD), media_type="text/html")
+
+
+@app.get("/upcoming_matches")
+def upcoming_matches() -> list[dict[str, Any]]:
+    try:
+        return _get_feed().get_upcoming_matches(days_ahead=1)
+    except Exception as exc:
+        _log.warning("upcoming_matches error: %s", exc)
+        return []
 
 
 @app.get("/")

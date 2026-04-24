@@ -105,12 +105,18 @@ class TennisFeed:
                 home = (event.get("homeTeam") or {}).get("name", "Unknown")
                 away = (event.get("awayTeam") or {}).get("name", "Unknown")
                 tournament = (event.get("tournament") or {}).get("name", "Unknown")
+                category_slug = (
+                    (event.get("tournament") or {})
+                    .get("category", {})
+                    .get("slug", "atp")
+                )
                 results.append({
                     "match_id": int(match_id),
                     "player_a": home,
                     "player_b": away,
                     "tournament": tournament,
                     "scheduled_start_unix": int(start_ts),
+                    "tour": category_slug.upper(),
                 })
         return results
 
