@@ -6,3 +6,7 @@ data/raw/
 data/processed/*.duckdb
 logs/*.log
 !logs/.gitkeep
+*.duckdb
+*.duckdb.wal
+.DS_Store
+**/.DS_Store
