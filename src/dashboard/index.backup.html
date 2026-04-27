@@ -1,0 +1,1488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tennis Engine</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+      background: #0d1117;
+      color: #c9d1d9;
+      min-height: 100vh;
+    }
+
+    /* ── TAB BAR ── */
+    .tab-bar {
+      display: flex;
+      border-bottom: 1px solid #21262d;
+      padding: 0 24px;
+      background: #161b22;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #6e7681;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      margin-bottom: -1px;
+      padding: 12px 20px;
+      text-transform: uppercase;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab-btn:hover { color: #c9d1d9; }
+    .tab-btn.active { border-bottom-color: #388bfd; color: #388bfd; }
+
+    /* ── PANE ── */
+    .tab-pane { padding: 24px; }
+
+    /* ── TYPE ── */
+    h1 { font-size: 1.3rem; color: #f0f6fc; margin-bottom: 16px; letter-spacing: 0.04em; }
+    h2 { font-size: 1rem; color: #8b949e; margin: 20px 0 8px; }
+    h3 { font-size: 0.82rem; color: #6e7681; text-transform: uppercase;
+         letter-spacing: 0.08em; margin: 20px 0 8px; }
+
+    /* ── HEADER ── */
+    .header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 24px; }
+    .badge  { font-size: 0.7rem; background: #21262d; border: 1px solid #30363d;
+              border-radius: 12px; padding: 2px 8px; color: #6e7681; }
+    .pulse  { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+              background: #3fb950; margin-right: 4px;
+              animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+    @keyframes pulse    { 0%,100%{opacity:1}  50%{opacity:.4} }
+    @keyframes flash    { 0%,100%{opacity:1}  50%{opacity:.3} }
+    @keyframes edgeglow { 0%,100%{text-shadow:none} 50%{text-shadow:0 0 12px currentColor} }
+
+    /* ── FORM ── */
+    select {
+      background: #161b22; border: 1px solid #30363d; border-radius: 6px;
+      color: #c9d1d9; padding: 6px 12px; font-family: inherit; font-size: 0.85rem;
+      cursor: pointer; outline: none;
+    }
+    select:hover { border-color: #58a6ff; }
+
+    /* ── GRID ── */
+    .grid-2      { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .grid-recap  { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; margin-top: 24px; }
+    .grid-stats  { display: grid; grid-template-columns: 1fr 2fr; gap: 24px; margin-top: 24px; }
+
+    /* ── CARD ── */
+    .card { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 16px; }
+
+    /* ── TABLE ── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    th { color: #6e7681; font-weight: 600; text-align: left; padding: 6px 10px;
+         border-bottom: 1px solid #21262d; text-transform: uppercase;
+         letter-spacing: 0.06em; font-size: 0.7rem; }
+    td { padding: 5px 10px; border-bottom: 1px solid #161b22; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1c2128; }
+
+    /* ── SIGNALS ── */
+    .signal-val      { text-align: right; font-variant-numeric: tabular-nums; }
+    .signal-bar-wrap { display: flex; align-items: center; gap: 6px; }
+    .signal-bar      { height: 6px; border-radius: 3px; background: #21262d; flex: 1; overflow: hidden; }
+    .signal-bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
+
+    /* ── UTIL ── */
+    .pos   { color: #3fb950; }
+    .neg   { color: #f85149; }
+    .dim   { color: #484f58; }
+    .empty { color: #484f58; text-align: center; padding: 32px; font-size: 0.85rem; }
+
+    /* ── PROBABILITIES ── */
+    .prob-item  { text-align: center; }
+    .prob-label { font-size: 0.65rem; color: #6e7681; text-transform: uppercase; letter-spacing: 0.08em; }
+    .prob-value { font-size: 1.6rem; font-weight: 700; line-height: 1.2; }
+
+    /* ── TOGGLE GROUP ── */
+    .toggle-group { display: flex; border: 1px solid #30363d; border-radius: 5px; overflow: hidden; }
+    .toggle-btn   {
+      background: none; border: none; border-right: 1px solid #30363d;
+      color: #6e7681; font-family: inherit; font-size: 0.7rem; padding: 3px 10px;
+      cursor: pointer; transition: background 0.15s;
+    }
+    .toggle-btn:last-child { border-right: none; }
+    .toggle-btn.active { background: #388bfd22; color: #388bfd; }
+
+    /* ── SCRUBBER ── */
+    .scrubber { -webkit-appearance: none; appearance: none;
+      width: 100%; height: 4px; background: #21262d; border-radius: 2px;
+      cursor: pointer; outline: none; }
+    .scrubber::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px;
+      border-radius: 50%; background: #388bfd; cursor: pointer; }
+    .scrubber::-moz-range-thumb {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: #388bfd; cursor: pointer; border: none; }
+    .live-btn {
+      background: #1a2a1a; border: 1px solid #3fb950; border-radius: 4px;
+      color: #3fb950; font-family: inherit; font-size: 0.7rem;
+      padding: 3px 10px; cursor: pointer; white-space: nowrap; }
+    .scrub-frozen { border: 1px solid #e3b341 !important; color: #e3b341 !important;
+                    background: #2a2510 !important; }
+
+    /* ── MOMENTUM ── */
+    .momentum-track  {
+      height: 8px; background: #21262d; border-radius: 4px;
+      overflow: visible; position: relative; }
+    .momentum-fill   {
+      height: 100%; border-radius: 4px;
+      background: linear-gradient(to right, #388bfd 0%, #7c3aed 50%, #f97316 100%);
+      clip-path: inset(0);
+      transition: width 0.6s cubic-bezier(0.4,0,0.2,1); }
+    .momentum-center {
+      position: absolute; top: -2px; left: 50%; transform: translateX(-50%);
+      width: 2px; height: 12px; background: #484f58; border-radius: 1px; }
+
+    /* ── EDGE ── */
+    .edge-alert    {
+      font-size: 0.62rem; background: #2a200a; border: 1px solid #e3b341;
+      border-radius: 4px; padding: 1px 7px; margin-left: 8px;
+      animation: flash 0.8s ease-in-out infinite; vertical-align: middle; }
+    .edge-alerting { animation: edgeglow 0.8s ease-in-out infinite; }
+
+    /* ── POINT RECAP ── */
+    .recap-scroll    { max-height: 520px; overflow-y: auto; overflow-x: hidden; }
+    .recap-set-hdr   {
+      font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.14em;
+      color: #484f58; padding: 14px 0 6px; font-weight: 600; }
+    .recap-game-hdr  {
+      display: flex; align-items: baseline; gap: 10px;
+      padding: 10px 0 7px; border-top: 1px solid #21262d; }
+    .recap-game-hdr:first-of-type { border-top: none; }
+    .recap-score-num { font-size: 1.15rem; font-weight: 700; color: #f0f6fc;
+                       font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+    .recap-score-name{ font-size: 0.82rem; color: #6e7681; }
+    .recap-grid      {
+      display: grid; row-gap: 0; font-variant-numeric: tabular-nums;
+      font-size: 0.8rem; width: fit-content; }
+    .recap-bp-cell   { height: 18px; display: flex; align-items: center; justify-content: center; }
+    .bp-badge        {
+      font-size: 0.55rem; background: #e040fb; color: #fff;
+      border-radius: 3px; padding: 1px 4px; font-weight: 700; letter-spacing: 0.03em; }
+    .recap-score-cell{ text-align: center; padding: 2px 0; color: #484f58; font-weight: 400; }
+    .recap-score-cell.won { color: #f0f6fc; font-weight: 700; }
+    .recap-label-cell{
+      display: flex; align-items: center; gap: 5px; padding-right: 8px;
+      font-size: 0.67rem; letter-spacing: 0.07em; text-transform: uppercase; color: #6e7681; }
+    .recap-dot-cell  { display: flex; align-items: center; justify-content: center;
+                       color: #3fb950; font-size: 0.65rem; }
+    .recap-sep       { color: #21262d; font-size: 0.85em; }
+    .recap-divider   { border-bottom: 1px solid #21262d; margin: 4px 0 0; }
+
+    /* ── COMPACT LOG ── */
+    .compact-log { overflow-y: auto; max-height: 240px; font-size: 0.7rem; }
+    .compact-log table { font-size: 0.7rem; }
+    .compact-log th, .compact-log td { padding: 3px 7px; }
+
+    /* ── REPLAY CONTROLS ── */
+    .ctrl-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .ctrl-btn {
+      min-width: 34px; height: 34px; border-radius: 6px;
+      border: 1px solid #30363d; background: transparent;
+      color: #c9d1d9; cursor: pointer; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: inherit; transition: border-color 0.15s, color 0.15s; }
+    .ctrl-btn:hover { border-color: #58a6ff; color: #58a6ff; }
+    .ctrl-btn.play {
+      min-width: 56px; border-color: #388bfd;
+      background: #388bfd22; color: #388bfd; font-size: 16px; }
+    .ctrl-btn.play.on {
+      border-color: #e3b341; background: #e3b34122; color: #e3b341; }
+    .speed-pill {
+      padding: 3px 9px; border-radius: 10px; border: 1px solid #30363d;
+      background: transparent; color: #6e7681; cursor: pointer;
+      font-family: inherit; font-size: 0.68rem; font-weight: 500;
+      transition: all 0.15s; }
+    .speed-pill.active { border-color: #388bfd; color: #388bfd; background: #388bfd15; }
+    .sec-label {
+      font-size: 0.62rem; color: #484f58; text-transform: uppercase;
+      letter-spacing: 0.1em; font-weight: 600; margin: 10px 0 5px; }
+    .pt-info { background: #0d1117; border-radius: 6px; padding: 10px;
+               font-size: 0.72rem; line-height: 2; }
+    .pt-info-k { color: #484f58; display: inline-block; width: 72px; }
+
+    /* ── REPLAY LAYOUT ── */
+    .replay-body {
+      display: grid; grid-template-columns: 256px 1fr; gap: 20px; margin-top: 20px; }
+    .replay-left { display: flex; flex-direction: column; gap: 14px; }
+
+    /* ── LOBBY ── */
+    .lobby-cols    { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 16px; }
+    .lobby-col-hdr {
+      font-size: 0.65rem; color: #6e7681; text-transform: uppercase; letter-spacing: 0.12em;
+      font-weight: 600; border-bottom: 1px solid #21262d; padding-bottom: 8px; margin-bottom: 12px; }
+    .match-card {
+      background: #161b22; border: 1px solid #21262d; border-radius: 8px;
+      padding: 10px 14px; cursor: pointer; margin-bottom: 8px;
+      width: fit-content; min-width: 240px; max-width: 340px;
+      transition: border-color 0.15s, background 0.15s; }
+    .match-card:hover { border-color: #388bfd; background: #1c2128; }
+    .match-card-names { font-size: 0.9rem; font-weight: 600; color: #f0f6fc; margin-bottom: 6px; }
+    .match-card-score { font-size: 0.75rem; color: #8b949e; display: flex; align-items: center; gap: 8px; }
+    .back-btn {
+      background: none; border: none; color: #6e7681; font-family: inherit;
+      font-size: 0.8rem; cursor: pointer; padding: 0; margin-bottom: 16px;
+      display: flex; align-items: center; gap: 6px; transition: color 0.15s; }
+    .back-btn:hover { color: #c9d1d9; }
+
+    /* ── SERVE INDICATOR ── */
+    @keyframes serveBlink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+    .serve-indicator {
+      animation: serveBlink 1.2s infinite;
+      display: inline-block;
+      width: 20px;
+      text-align: center;
+    }
+    .serve-spacer {
+      display: inline-block;
+      width: 20px;
+      visibility: hidden;
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+<script src="https://unpkg.com/recharts@2.12.0/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef, useMemo } = React;
+const {
+  ComposedChart, Area, Line, Bar, BarChart,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, ReferenceLine,
+} = Recharts;
+
+// ─── helpers ────────────────────────────────────────────────────────────────
+
+function deduplicatePoints(pts) {
+  const seen = new Set();
+  return pts.filter(p => {
+    if (seen.has(p.point_num)) return false;
+    seen.add(p.point_num);
+    return true;
+  });
+}
+
+const SIDE      = { home: 'A', away: 'B' };
+const pct       = v => (typeof v === 'number' && isFinite(v)) ? (v*100).toFixed(1)+'%' : '—';
+const sign      = v => (typeof v === 'number' && isFinite(v)) ? (v>0?'+':'')+v.toFixed(3) : '—';
+const edgeColor = v => {
+  if (typeof v !== 'number' || !isFinite(v)) return '#484f58';
+  return v > 0.02 ? '#3fb950' : v < -0.02 ? '#f85149' : '#e3b341';
+};
+
+function enrichForPlayer(pts, player) {
+  return pts.map(p => {
+    const flip = player === 'B';
+    const m = p.model_prob_a     != null ? (flip ? 1-p.model_prob_a     : p.model_prob_a)     : null;
+    const b = p.bookmaker_prob_a != null ? (flip ? 1-p.bookmaker_prob_a : p.bookmaker_prob_a) : null;
+    const e = p.edge             != null ? (flip ? -p.edge              : p.edge)             : null;
+    const hasBoth = m != null && b != null;
+    return { ...p, _model:m, _bookie:b, _edge:e,
+             lower: hasBoth ? Math.min(m,b) : null,
+             gap:   hasBoth ? Math.abs(m-b) : null };
+  });
+}
+
+function groupByGame(points) {
+  const map = new Map();
+  for (const pt of points) {
+    const key = `${pt.set_num}-${pt.game_num}`;
+    if (!map.has(key)) map.set(key, { set: pt.set_num, game: pt.game_num, points: [] });
+    map.get(key).points.push(pt);
+  }
+  return [...map.values()].sort((a,b) => a.set !== b.set ? a.set-b.set : a.game-b.game);
+}
+
+// Pre-compute {setsA,setsB,gamesA,gamesB} at every point index.
+// Fix: null return from inferGameWinner skips the increment (no misattribution).
+// Fix: score-reset fallback detects new-game boundary when game_num didn't increment.
+function computeScores(pts) {
+  const out = [];
+  let sA=0, sB=0, gA=0, gB=0;
+  let completedSets = [];   // [{h: gamesHome, a: gamesAway}, ...]
+  for (let i = 0; i < pts.length; i++) {
+    const prev = pts[i-1], cur = pts[i];
+    if (prev) {
+      const setChg     = cur.set_num > prev.set_num;
+      const gameNumChg = cur.game_num !== prev.game_num;
+      // Fallback: some APIs omit game_num increment on the first point of a new
+      // game — detect the boundary via score reset to 15-0 or 0-15 instead.
+      const scoreReset = !gameNumChg && !setChg && (
+        (cur.home_point === '15' && cur.away_point === '0') ||
+        (cur.home_point === '0'  && cur.away_point === '15')
+      );
+      const gameChg = gameNumChg || scoreReset;
+      if (setChg || gameChg) {
+        const w = inferGameWinner(
+          prev.home_point, prev.away_point, prev.point_winner, true
+        );
+        if (w === 'home') gA++;
+        else if (w === 'away') gB++;
+        // null: winner unclear — skip rather than misattribute
+        if (setChg) {
+          completedSets = [...completedSets, { h: gA, a: gB }];
+          if (gA > gB) sA++; else sB++;
+          gA = 0; gB = 0;
+        }
+      }
+    }
+    out.push({ setsA:sA, setsB:sB, gamesA:gA, gamesB:gB,
+               completedSets:[...completedSets] });
+  }
+  return out;
+}
+
+// ─── shared components ──────────────────────────────────────────────────────
+const STD   = new Set(['0','15','30','40','A','AD']);
+const fmtSc = v => v == null ? '?' : v === 'A' ? 'AD' : String(v);
+
+function isBP(pt) {
+  if (!STD.has(pt.home_point) || !STD.has(pt.away_point)) return false;
+  const ret = pt.server==='home' ? pt.away_point : pt.home_point;
+  const srv = pt.server==='home' ? pt.home_point : pt.away_point;
+  return ret==='A' || ret==='AD' || (ret==='40' && (srv==='0'||srv==='15'||srv==='30'));
+}
+
+function abbrev(name) {
+  if (!name) return '???';
+  return name.trim().split(/\s+/).pop().slice(0,4).toUpperCase();
+}
+
+// Determine who won a game given the LAST LOGGED point's score and whether a
+// subsequent game exists.  When the API omits the game-winning point (common
+// in live data), `point_winner` of the last row can be misleading — instead we
+// inspect the score state.
+//
+//   hasNext = true  → a subsequent game started, so this game definitely ended
+//   hasNext = false → this is the in-progress game; only terminal scores count
+function inferGameWinner(hp, ap, pw, hasNext) {
+  const isTB = !STD.has(hp) || !STD.has(ap);
+  if (isTB) {
+    if (!hasNext) return null;
+    const h = parseInt(hp), a = parseInt(ap);
+    if (!isNaN(h) && !isNaN(a)) return h > a ? 'home' : h < a ? 'away' : pw;
+    return pw;
+  }
+  const NON40 = new Set(['0','15','30']);
+  // Unambiguous terminal states — reliable regardless of hasNext
+  if (hp === '40' && NON40.has(ap) && pw === 'home') return 'home';
+  if (ap === '40' && NON40.has(hp) && pw === 'away') return 'away';
+  if ((hp === 'A' || hp === 'AD') && pw === 'home')  return 'home';
+  if ((ap === 'A' || ap === 'AD') && pw === 'away')  return 'away';
+  // Non-terminal score — only meaningful when we know the game ended
+  if (!hasNext) return null;
+  const AHEAD = new Set(['40','A','AD']);
+  if (AHEAD.has(hp) && !AHEAD.has(ap)) return 'home'; // home was at game point
+  if (AHEAD.has(ap) && !AHEAD.has(hp)) return 'away'; // away was at game point
+  return pw; // deuce/symmetric — fall back to last point winner
+}
+
+const COL=36, DOT=16, LBL=50;
+
+function GameBlock({ game, lblA, lblB, preH, preA, playerA, playerB }) {
+  const pts = game.points;
+  if (!pts.length) return null;
+  const srv = pts[0].server;
+  const n   = pts.length;
+  let scoreStr, descStr;
+  if (preH===0 && preA===0)    { scoreStr='0–0'; descStr='tied'; }
+  else if (preH > preA)        { scoreStr=`${preH}–${preA}`; descStr=playerA.trim().split(/\s+/).pop(); }
+  else if (preA > preH)        { scoreStr=`${preA}–${preH}`; descStr=playerB.trim().split(/\s+/).pop(); }
+  else                         { scoreStr=`${preH}–${preA}`; descStr='tied'; }
+  const cols = `${DOT}px ${LBL}px ${Array(n).fill(COL+'px').join(' ')}`;
+  return (
+    <div>
+      <div className="recap-game-hdr">
+        <span className="recap-score-num">{scoreStr}</span>
+        <span className="recap-score-name">{descStr}</span>
+      </div>
+      <div style={{overflowX:'auto',marginBottom:6}}>
+        <div className="recap-grid" style={{gridTemplateColumns:cols}}>
+          {/* BP row */}
+          <div/><div/>
+          {pts.map((pt,i)=>(
+            <div key={i} className="recap-bp-cell">
+              {isBP(pt) && <span className="bp-badge">BP</span>}
+            </div>
+          ))}
+          {/* Home row */}
+          <div className="recap-dot-cell">{srv==='home' && '●'}</div>
+          <div className="recap-label-cell">{lblA}<span className="recap-sep">│</span></div>
+          {pts.map((pt,i)=>{
+            const won = pt.point_winner==='home';
+            return (
+              <div key={i} className={`recap-score-cell${won?' won':''}`}
+                   style={pt.is_ace?{color:won?'#3fb950':'#484f58'}:{}}>
+                {fmtSc(pt.home_point)}
+                {won && pt.is_ace && <span style={{fontSize:'0.55rem',marginLeft:1}}>A</span>}
+              </div>
+            );
+          })}
+          {/* Away row */}
+          <div className="recap-dot-cell">{srv==='away' && '●'}</div>
+          <div className="recap-label-cell">{lblB}<span className="recap-sep">│</span></div>
+          {pts.map((pt,i)=>{
+            const won = pt.point_winner==='away';
+            return (
+              <div key={i} className={`recap-score-cell${won?' won':''}`}
+                   style={pt.is_double_fault&&won?{color:'#f85149'}:{}}>
+                {fmtSc(pt.away_point)}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="recap-divider"/>
+    </div>
+  );
+}
+
+function PointRecap({ allPoints, playerA, playerB }) {
+  const games   = useMemo(() => groupByGame(allPoints), [allPoints]);
+  const lblA    = abbrev(playerA), lblB = abbrev(playerB);
+  if (!games.length) return <p className="empty">No points yet.</p>;
+  const sets    = [...new Set(games.map(g=>g.set))].sort((a,b)=>a-b);
+  const numSets = sets.length;
+  return (
+    <div className="recap-scroll">
+      {sets.map((s,si) => {
+        const sg   = games.filter(g=>g.set===s);
+        const numG = sg.length;
+        let hG=0, aG=0;
+        return (
+          <div key={s}>
+            <div className="recap-set-hdr" style={{borderTop:si>0?'1px solid #161b22':'none'}}>
+              Set {s}
+            </div>
+            {sg.map((game, gi) => {
+              const pre  = [hG, aG];
+              const last = game.points[game.points.length - 1];
+              const hasNext = gi < numG - 1 || si < numSets - 1;
+              const winner  = last
+                ? inferGameWinner(last.home_point, last.away_point, last.point_winner, hasNext)
+                : null;
+              if (winner === 'home') hG++;
+              else if (winner === 'away') aG++;
+              return (
+                <GameBlock key={`${game.set}-${game.game}`}
+                  game={game} lblA={lblA} lblB={lblB}
+                  preH={pre[0]} preA={pre[1]}
+                  playerA={playerA} playerB={playerB} />
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CompactLog({ points }) {
+  if (!points.length) return <p className="empty" style={{padding:12}}>No points.</p>;
+  return (
+    <div className="compact-log">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th><th>Score</th><th>Srv</th><th>Win</th>
+            <th>Ace</th><th>DF</th><th>P(A)</th><th>Edge</th>
+          </tr>
+        </thead>
+        <tbody>
+          {points.map(p => (
+            <tr key={p.point_num}>
+              <td className="dim">{p.point_num}</td>
+              <td style={{fontVariantNumeric:'tabular-nums'}}>
+                {p.home_point??'—'}&ndash;{p.away_point??'—'}
+              </td>
+              <td>{SIDE[p.server]??p.server}</td>
+              <td style={{color:p.point_winner==='home'?'#388bfd':'#f97316'}}>
+                {SIDE[p.point_winner]??p.point_winner}
+              </td>
+              <td>{p.is_ace          ? <span className="pos">A</span>  : ''}</td>
+              <td>{p.is_double_fault ? <span className="neg">DF</span> : ''}</td>
+              <td style={{fontVariantNumeric:'tabular-nums'}}>{pct(p.model_prob_a)}</td>
+              <td style={{color:edgeColor(p.edge),fontVariantNumeric:'tabular-nums'}}>
+                {sign(p.edge)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ─── live tab components ────────────────────────────────────────────────────
+
+function MomentumBar({ latest, playerA, playerB }) {
+  if (!latest) return null;
+  const da=latest.d_a, db=latest.d_b;
+  const valid = typeof da==='number' && typeof db==='number' && isFinite(da) && isFinite(db) && (da+db)>0;
+  const pos   = valid ? Math.max(0.05,Math.min(0.95,da/(da+db))) : 0.5;
+  return (
+    <div style={{margin:'12px 0 16px'}}>
+      <div style={{display:'flex',justifyContent:'space-between',fontSize:'0.62rem',color:'#484f58',marginBottom:5}}>
+        <span style={{color:'#388bfd'}}>{playerA}</span>
+        <span>momentum</span>
+        <span style={{color:'#f97316'}}>{playerB}</span>
+      </div>
+      <div className="momentum-track">
+        <div className="momentum-fill" style={{width:(pos*100)+'%'}}/>
+        <div className="momentum-center"/>
+      </div>
+    </div>
+  );
+}
+
+function ScoreBadge({ latest, sc, playerA, playerB, viewPlayer }) {
+  if (!latest) return null;
+  const { home_point, away_point } = latest;
+  const flip    = viewPlayer==='B';
+  const modelP  = flip ? (latest.model_prob_a     !=null ? 1-latest.model_prob_a     : null) : latest.model_prob_a;
+  const bookieP = flip ? (latest.bookmaker_prob_a  !=null ? 1-latest.bookmaker_prob_a : null) : latest.bookmaker_prob_a;
+  const edge    = flip ? (latest.edge              !=null ? -latest.edge              : null) : latest.edge;
+  const alert   = edge!=null && Math.abs(edge)>0.15;
+  const setsA  = sc?.setsA  ?? latest.sets_a;
+  const setsB  = sc?.setsB  ?? latest.sets_b;
+  const gamesA = sc?.gamesA ?? latest.games_a;
+  const gamesB = sc?.gamesB ?? latest.games_b;
+  const completedSets = sc?.completedSets ?? [];
+  const cA='#388bfd', cB='#f97316';
+
+  const numSets = completedSets.length + 1;
+  const setHeaders = Array.from({length: numSets}, (_, i) =>
+    i < completedSets.length ? `S${i+1}` : `S${i+1}*`
+  );
+
+  const getCellStyle = (val, oppVal, isCompleted) => {
+    if (!isCompleted) return { color: '#c9d1d9' };
+    return val > oppVal
+      ? { color: '#f0f6fc', fontWeight: 700 }
+      : { color: '#484f58' };
+  };
+
+  const scoreRow = (name, setVals, games, pts, color) => (
+    <tr>
+      <td style={{color, fontWeight:600, paddingRight:16, whiteSpace:'nowrap',
+                  maxWidth:160, overflow:'hidden', textOverflow:'ellipsis'}}>
+        {name}
+      </td>
+      {setVals.map((val, i) => {
+        const opp = setVals === homeSetVals ? awaySetVals[i] : homeSetVals[i];
+        const isCompleted = i < completedSets.length;
+        return (
+          <td key={i} style={{textAlign:'center', padding:'0 8px',
+                              fontSize: isCompleted ? '1.0rem' : '1.2rem',
+                              fontWeight: isCompleted ? 500 : 700,
+                              fontVariantNumeric:'tabular-nums',
+                              ...getCellStyle(val, opp, isCompleted)}}>
+            {val ?? '—'}
+          </td>
+        );
+      })}
+      <td style={{textAlign:'center', padding:'0 10px', fontSize:'0.85rem',
+                  fontVariantNumeric:'tabular-nums', color:'#8b949e'}}>
+        {pts ?? '—'}
+      </td>
+    </tr>
+  );
+
+  const homeSetVals = [...completedSets.map(s => s.h), gamesA];
+  const awaySetVals = [...completedSets.map(s => s.a), gamesB];
+
+  const scoreTable = (
+    <table style={{borderCollapse:'collapse', fontSize:'0.85rem'}}>
+      <thead>
+        <tr>
+          <th style={{width:170}}></th>
+          {setHeaders.map(h => (
+            <th key={h} style={{textAlign:'center', padding:'0 8px',
+                                fontSize:'0.62rem', color:'#6e7681',
+                                textTransform:'uppercase',
+                                letterSpacing:'0.08em', fontWeight:600}}>
+              {h}
+            </th>
+          ))}
+          <th style={{textAlign:'center', padding:'0 10px',
+                      fontSize:'0.62rem', color:'#6e7681',
+                      textTransform:'uppercase', letterSpacing:'0.08em',
+                      fontWeight:600}}>
+            Pts
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {scoreRow(playerA, homeSetVals, gamesA, home_point, cA)}
+        {scoreRow(playerB, awaySetVals, gamesB, away_point, cB)}
+      </tbody>
+    </table>
+  );
+
+  return (
+    <div style={{display:'flex',gap:32,padding:'12px 0',alignItems:'center',flexWrap:'wrap'}}>
+      <div className="prob-item">
+        <div className="prob-label">Model P({viewPlayer})</div>
+        <div className="prob-value" style={{color:cA}}>{pct(modelP)}</div>
+      </div>
+      <div className="prob-item">
+        <div className="prob-label">Bookie P({viewPlayer})</div>
+        <div className="prob-value" style={{color:cB}}>{pct(bookieP)}</div>
+      </div>
+      <div className="prob-item">
+        <div className="prob-label">Edge</div>
+        <div className={`prob-value${alert?' edge-alerting':''}`} style={{color:edgeColor(edge)}}>{sign(edge)}</div>
+        {alert && <span className="edge-alert">⚡ Edge detected</span>}
+      </div>
+      <div style={{marginLeft:'auto'}}>
+        {scoreTable}
+      </div>
+    </div>
+  );
+}
+
+function SignalRow({ label, va, vb }) {
+  const na=typeof va==='number'&&isFinite(va), nb=typeof vb==='number'&&isFinite(vb);
+  const pa=na?Math.max(0,Math.min(100,va)):0, pb=nb?Math.max(0,Math.min(100,vb)):0;
+  return (
+    <tr>
+      <td style={{color:'#8b949e',width:'48px'}}>{label}</td>
+      <td>
+        <div className="signal-bar-wrap">
+          <span className="signal-val" style={{width:'42px',textAlign:'right'}}>{na?Math.round(va):'—'}</span>
+          <div className="signal-bar"><div className="signal-bar-fill" style={{width:pa+'%',background:'#388bfd'}}/></div>
+        </div>
+      </td>
+      <td>
+        <div className="signal-bar-wrap">
+          <div className="signal-bar"><div className="signal-bar-fill" style={{width:pb+'%',background:'#f97316',float:'right'}}/></div>
+          <span className="signal-val" style={{width:'42px'}}>{nb?Math.round(vb):'—'}</span>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function SignalTable({ latest, playerA, playerB }) {
+  if (!latest) return <p className="empty">Waiting for first point …</p>;
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th></th>
+          <th style={{color:'#388bfd'}}>{playerA}</th>
+          <th style={{color:'#f97316',textAlign:'right'}}>{playerB}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {[['NMI','nmi'],['SMS','sms'],['RMS','rms'],['PMS','pms'],['GPS','gps']].map(([lbl,k])=>(
+          <SignalRow key={k} label={lbl} va={latest[k+'_a']} vb={latest[k+'_b']}/>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ProbChart({ data, viewPlayer, playerA, playerB }) {
+  if (!data.length) return null;
+  const TT = ({ active, payload }) => {
+    if (!active||!payload?.length) return null;
+    const d=payload[0]?.payload??{};
+    return (
+      <div style={{background:'#1c2128',border:'1px solid #30363d',borderRadius:6,padding:'8px 12px',fontSize:'0.75rem'}}>
+        <div style={{color:'#6e7681',marginBottom:4}}>Point #{d.point_num}</div>
+        <div style={{color:'#388bfd'}}>Model: {pct(d._model)}</div>
+        {d._bookie!=null && <div style={{color:'#f97316'}}>Bookie: {pct(d._bookie)}</div>}
+        {d._edge  !=null && <div style={{color:edgeColor(d._edge)}}>Edge: {sign(d._edge)}</div>}
+      </div>
+    );
+  };
+  return (
+    <ResponsiveContainer width="100%" height={230}>
+      <ComposedChart data={data} margin={{top:4,right:8,bottom:0,left:-16}}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#21262d"/>
+        <XAxis dataKey="point_num" tick={{fontSize:10,fill:'#484f58'}}/>
+        <YAxis domain={[0,1]} tickFormatter={v=>(v*100).toFixed(0)+'%'} tick={{fontSize:10,fill:'#484f58'}}/>
+        <Tooltip content={<TT/>}/>
+        <Legend wrapperStyle={{fontSize:'0.75rem',paddingTop:8}}/>
+        <Area dataKey="lower" stackId="band" stroke="none" fill="transparent" fillOpacity={0} legendType="none" dot={false}/>
+        <Area dataKey="gap"   stackId="band" stroke="none" fill="#7c3aed" fillOpacity={0.25} name="Edge band" dot={false}/>
+        <Line type="monotone" dataKey="_model"  stroke="#388bfd" strokeWidth={2} dot={false} name={`Model P(${viewPlayer})`}/>
+        <Line type="monotone" dataKey="_bookie" stroke="#f97316" strokeWidth={2} strokeDasharray="5 4" dot={false} name={`Bookie P(${viewPlayer})`} connectNulls/>
+      </ComposedChart>
+    </ResponsiveContainer>
+  );
+}
+
+function EdgeChart({ data }) {
+  if (!data.length) return null;
+  return (
+    <ResponsiveContainer width="100%" height={100}>
+      <BarChart data={data} margin={{top:0,right:8,bottom:0,left:-16}}>
+        <CartesianGrid strokeDasharray="3 3" stroke="#21262d"/>
+        <XAxis dataKey="point_num" tick={{fontSize:10,fill:'#484f58'}}/>
+        <YAxis tickFormatter={v=>v.toFixed(2)} tick={{fontSize:10,fill:'#484f58'}}/>
+        <ReferenceLine y={0} stroke="#484f58"/>
+        <Bar dataKey="_edge" name="Edge" isAnimationActive={false}
+          shape={props=>{
+            const {x,y,width,height,value}=props;
+            if (value==null) return null;
+            const color=value>0.02?'#3fb950':value<-0.02?'#f85149':'#e3b341';
+            const h=Math.abs(height), top=value>=0?y:y+height;
+            return <rect x={x} y={top} width={width} height={h} fill={color} fillOpacity={0.8} rx={2}/>;
+          }}/>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+function computeMatchStats(points) {
+  if (!points.length) return null;
+  const allGames = groupByGame(points);
+  const result = {};
+  for (const side of ['home', 'away']) {
+    const opp = side === 'home' ? 'away' : 'home';
+    const ptsWon       = points.filter(p => p.point_winner === side).length;
+    const servePts     = points.filter(p => p.server === side);
+    const serveWon     = servePts.filter(p => p.point_winner === side).length;
+    const returnPts    = points.filter(p => p.server === opp);
+    const returnWon    = returnPts.filter(p => p.point_winner === side).length;
+    let svcHolds = 0, svcTotal = 0;
+    for (let gi = 0; gi < allGames.length; gi++) {
+      const g = allGames[gi];
+      if (g.points[0]?.server !== side) continue;
+      svcTotal++;
+      const last = g.points[g.points.length - 1];
+      if (!last) continue;
+      const w = inferGameWinner(last.home_point, last.away_point, last.point_winner, gi < allGames.length - 1);
+      if (w === side) svcHolds++;
+    }
+    const bpRecvFaced = points.filter(p => p.server === opp  && isBP(p)).length;
+    const bpRecvWon   = points.filter(p => p.server === opp  && isBP(p) && p.point_winner === side).length;
+    const bpSrvFaced  = points.filter(p => p.server === side && isBP(p)).length;
+    const bpSrvSaved  = points.filter(p => p.server === side && isBP(p) && p.point_winner === side).length;
+    let serveStreak = 0;
+    for (let i = points.length - 1; i >= 0; i--) {
+      const p = points[i];
+      if (p.server === side) {
+        if (p.point_winner === side) serveStreak++;
+        else break;
+      }
+    }
+    result[side] = { ptsWon, serveWon, servePtsTotal: servePts.length, returnWon, returnPtsTotal: returnPts.length, svcHolds, svcTotal, bpRecvWon, bpRecvFaced, bpSrvSaved, bpSrvFaced, serveStreak };
+  }
+  return result;
+}
+
+function MatchStats({ points, playerA, playerB }) {
+  const stats = useMemo(() => computeMatchStats(points), [points]);
+  if (!stats) return <p className="empty">No data yet.</p>;
+  const fmtPct  = (n, d) => d > 0 ? `${Math.round(n / d * 100)}%` : '—';
+  const fmtFrac = (n, d) => d > 0 ? `${n}/${d} (${fmtPct(n, d)})` : '—';
+  const h = stats.home, a = stats.away;
+  const rows = [
+    ['Points Won',           h.ptsWon,                                     a.ptsWon],
+    ['Pts Won on Serve',     fmtFrac(h.serveWon,   h.servePtsTotal),        fmtFrac(a.serveWon,   a.servePtsTotal)],
+    ['Pts Won on Return',    fmtFrac(h.returnWon,  h.returnPtsTotal),       fmtFrac(a.returnWon,  a.returnPtsTotal)],
+    ['Service Games Won',    fmtFrac(h.svcHolds,   h.svcTotal),             fmtFrac(a.svcHolds,   a.svcTotal)],
+    ['Break Points Won',     fmtFrac(h.bpRecvWon,  h.bpRecvFaced),          fmtFrac(a.bpRecvWon,  a.bpRecvFaced)],
+    ['Break Points Saved',   fmtFrac(h.bpSrvSaved, h.bpSrvFaced),           fmtFrac(a.bpSrvSaved, a.bpSrvFaced)],
+    ['Serve Streak',         h.serveStreak,                                 a.serveStreak],
+  ];
+  const abbA = abbrev(playerA), abbB = abbrev(playerB);
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th></th>
+          <th style={{color:'#388bfd'}}>{abbA}</th>
+          <th style={{color:'#f97316'}}>{abbB}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map(([label, va, vb]) => (
+          <tr key={label}>
+            <td style={{color:'#6e7681',fontSize:'0.72rem',paddingRight:12,whiteSpace:'nowrap'}}>{label}</td>
+            <td style={{color:'#c9d1d9',fontVariantNumeric:'tabular-nums'}}>{va}</td>
+            <td style={{color:'#c9d1d9',fontVariantNumeric:'tabular-nums'}}>{vb}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function LiveScrubber({ total, scrubIdx, onScrub, onLive }) {
+  if (total < 2) return null;
+  const frozen=scrubIdx!==null, val=scrubIdx??total-1;
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:10,marginTop:10}}>
+      <span style={{fontSize:'0.62rem',color:'#484f58',whiteSpace:'nowrap'}}>Pt {val+1}/{total}</span>
+      <input type="range" min={0} max={total-1} value={val}
+        onChange={e=>onScrub(Number(e.target.value))} className="scrubber"/>
+      {frozen
+        ? <button onClick={onLive} className="live-btn scrub-frozen">⏩ LIVE</button>
+        : <button onClick={onLive} className="live-btn">● LIVE</button>}
+    </div>
+  );
+}
+
+// ─── Upcoming Section ───────────────────────────────────────────────────────
+
+function UpcomingSection() {
+  const [upcoming, setUpcoming] = useState([]);
+  const [error,    setError]    = useState(null);
+
+  const fetchUpcoming = useCallback(async () => {
+    try {
+      const data = await fetch('/upcoming_matches').then(r => r.json());
+      setUpcoming(Array.isArray(data) ? data : []);
+      setError(null);
+    } catch(e) { setError(e.message); }
+  }, []);
+
+  useEffect(() => {
+    fetchUpcoming();
+    const id = setInterval(fetchUpcoming, 5 * 60 * 1000); // 5 minutes
+    return () => clearInterval(id);
+  }, [fetchUpcoming]);
+
+  const fmtTime = unix =>
+    new Date(unix * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const fmtDay = unix => {
+    const d = new Date(unix * 1000), now = new Date();
+    const tom = new Date(now); tom.setDate(now.getDate() + 1);
+    if (d.toDateString() === now.toDateString()) return 'Today';
+    if (d.toDateString() === tom.toDateString()) return 'Tomorrow';
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  };
+
+  const renderTourGroup = (matches, label) => {
+    if (!matches.length) return null;
+    const sorted = [...matches].sort((a, b) => a.scheduled_start_unix - b.scheduled_start_unix);
+    const groups = new Map();
+    for (const m of sorted) {
+      if (!groups.has(m.tournament)) groups.set(m.tournament, []);
+      groups.get(m.tournament).push(m);
+    }
+    return (
+      <div style={{marginBottom:24}}>
+        <div className="lobby-col-hdr" style={{marginBottom:10}}>{label}</div>
+        {[...groups.entries()].map(([tourney, ms]) => (
+          <div key={tourney} style={{marginBottom:14}}>
+            <div style={{
+              fontSize:'0.65rem', letterSpacing:'0.12em', textTransform:'uppercase',
+              color:'#6e7681', marginBottom:5, paddingLeft:2,
+            }}>{tourney}</div>
+            {ms.map(m => (
+              <div key={m.match_id} style={{
+                display:'flex', alignItems:'center', gap:10,
+                padding:'5px 2px', borderBottom:'1px solid #1c2128',
+                fontSize:'0.82rem',
+              }}>
+                <span style={{
+                  minWidth:44, fontVariantNumeric:'tabular-nums',
+                  fontSize:'0.75rem', color:'#58a6ff',
+                }}>
+                  {fmtTime(m.scheduled_start_unix)}
+                </span>
+                <span style={{minWidth:52, fontSize:'0.65rem', color:'#484f58'}}>
+                  {fmtDay(m.scheduled_start_unix)}
+                </span>
+                <span style={{color:'#6e7681', fontSize:'0.7rem', minWidth:110, flexShrink:0,
+                              overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                  {m.tournament}
+                </span>
+                <span style={{color:'#c9d1d9'}}>
+                  {m.player_a} <span style={{color:'#484f58'}}>vs</span> {m.player_b}
+                </span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  const atp   = upcoming.filter(m => m.tour === 'ATP');
+  const wta   = upcoming.filter(m => m.tour === 'WTA');
+  const hasAny = atp.length > 0 || wta.length > 0;
+
+  return (
+    <div style={{marginTop:32}}>
+      <div style={{
+        display:'flex', alignItems:'center', gap:12,
+        borderTop:'1px solid #21262d', paddingTop:20, marginBottom:20,
+      }}>
+        <h2 style={{margin:0}}>Upcoming</h2>
+        <span className="badge">Today &amp; Tomorrow · auto-refresh 5m</span>
+      </div>
+      {error && <div style={{color:'#f85149',fontSize:'0.8rem',marginBottom:8}}>⚠ {error}</div>}
+      {!hasAny
+        ? <p className="empty">No upcoming matches scheduled</p>
+        : <>{renderTourGroup(atp, 'ATP')}{renderTourGroup(wta, 'WTA')}</>
+      }
+    </div>
+  );
+}
+
+// ─── Live Tab — two-level: Lobby → MatchDetail ──────────────────────────────
+
+function MatchCard({ match, onClick }) {
+  const servingA = match.server === 'home';
+  const servingB = match.server === 'away';
+  return (
+    <div className="match-card" onClick={() => onClick(match)}>
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'2px 0'}}>
+        {servingA
+          ? <span className="serve-indicator">🎾</span>
+          : <span className="serve-spacer">🎾</span>}
+        <span style={{flexGrow:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{match.player_a}</span>
+        <span style={{minWidth:20,textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{match.games_a ?? '—'}</span>
+        <span style={{minWidth:28,textAlign:'right',fontVariantNumeric:'tabular-nums',opacity:0.65}}>{match.home_point ?? '—'}</span>
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:8,padding:'2px 0'}}>
+        {servingB
+          ? <span className="serve-indicator">🎾</span>
+          : <span className="serve-spacer">🎾</span>}
+        <span style={{flexGrow:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{match.player_b}</span>
+        <span style={{minWidth:20,textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{match.games_b ?? '—'}</span>
+        <span style={{minWidth:28,textAlign:'right',fontVariantNumeric:'tabular-nums',opacity:0.65}}>{match.away_point ?? '—'}</span>
+      </div>
+    </div>
+  );
+}
+
+function Lobby({ onSelect }) {
+  const [liveMatches, setLiveMatches] = useState([]);
+  const [error,       setError]       = useState(null);
+
+  const fetchMatches = useCallback(async () => {
+    try {
+      const data = await fetch('/live_matches').then(r => r.json());
+      setLiveMatches(data);
+    } catch(e) { setError(e.message); }
+  }, []);
+
+  useEffect(() => {
+    fetchMatches();
+    const id = setInterval(fetchMatches, 15_000);
+    return () => clearInterval(id);
+  }, [fetchMatches]);
+
+  if (error) return <div style={{color:'#f85149',padding:'16px 0'}}>⚠ {error}</div>;
+
+  const atpMatches = liveMatches.filter(m => m.category === 'atp' || !m.category);
+  const wtaMatches = liveMatches.filter(m => m.category === 'wta');
+
+  const groupByTournament = (matches) => {
+    const groups = new Map();
+    for (const m of matches) {
+      const key = m.tournament_name || 'Live';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(m);
+    }
+    return groups;
+  };
+
+  const renderColumn = (matches, emptyLabel) => {
+    if (!matches.length) {
+      return (
+        <p className="empty" style={{textAlign:'center',padding:'16px 0'}}>{emptyLabel}</p>
+      );
+    }
+    return [...groupByTournament(matches).entries()].map(([tourney, ms]) => (
+      <div key={tourney}>
+        <div style={{
+          fontSize:'0.65rem', letterSpacing:'0.12em', textTransform:'uppercase',
+          color:'#6e7681', margin:'16px 0 6px 0', paddingLeft:4,
+        }}>{tourney}</div>
+        {ms.map(m => <MatchCard key={m.match_id} match={m} onClick={onSelect}/>)}
+      </div>
+    ));
+  };
+
+  return (
+    <>
+      <div className="lobby-cols">
+        <div style={{alignSelf:'flex-start'}}>
+          <div className="lobby-col-hdr">ATP</div>
+          {renderColumn(atpMatches, 'No live ATP matches')}
+        </div>
+        <div style={{alignSelf:'flex-start'}}>
+          <div className="lobby-col-hdr">WTA</div>
+          {renderColumn(wtaMatches, 'No live WTA matches')}
+        </div>
+      </div>
+      <UpcomingSection />
+    </>
+  );
+}
+
+function MatchDetail({ match, onBack }) {
+  const [allPoints,  setAllPoints]  = useState([]);
+  const [error,      setError]      = useState(null);
+  const [scrubIdx,   setScrubIdx]   = useState(null);
+  const [viewPlayer, setViewPlayer] = useState('A');
+  const isScrubbing = scrubIdx !== null;
+
+  const fetchPoints = useCallback(async () => {
+    try {
+      const data = await fetch(`/match/${match.match_id}`).then(r=>r.json());
+      setAllPoints(deduplicatePoints(data));
+    } catch(e) { setError(e.message); }
+  }, [match.match_id]);
+
+  useEffect(() => {
+    fetchPoints();
+    if (isScrubbing) return;
+    const id = setInterval(fetchPoints, 15_000);
+    return () => clearInterval(id);
+  }, [fetchPoints, isScrubbing]);
+
+  const visible     = isScrubbing ? allPoints.slice(0, scrubIdx+1) : allPoints;
+  const enriched    = useMemo(() => enrichForPlayer(visible, viewPlayer), [visible, viewPlayer]);
+  const latest      = visible[visible.length-1] ?? null;
+  const playerA     = match.player_a ?? 'Home (A)';
+  const playerB     = match.player_b ?? 'Away (B)';
+  const liveScores  = useMemo(() => computeScores(allPoints), [allPoints]);
+  const latestScore = visible.length > 0 ? liveScores[visible.length - 1] : null;
+
+  return (
+    <div>
+      <button className="back-btn" onClick={onBack}>← Back to matches</button>
+      <div className="header">
+        <h1>{playerA} vs {playerB}</h1>
+        <span className="badge"><span className="pulse"/>Live</span>
+        {isScrubbing && <span className="badge" style={{borderColor:'#e3b341',color:'#e3b341'}}>⏸ scrubbing</span>}
+        <span className="badge" style={{marginLeft:'auto',fontSize:'0.65rem'}}>
+          {isScrubbing ? 'updates paused' : 'auto-refresh 15s'}
+        </span>
+      </div>
+
+      {error && <div style={{color:'#f85149',marginBottom:12,fontSize:'0.8rem'}}>⚠ {error}</div>}
+
+      {allPoints.length===0 ? (
+        <p className="empty" style={{marginTop:40}}>No data yet — waiting for points …</p>
+      ) : (
+        <>
+          <ScoreBadge latest={latest} sc={latestScore} playerA={playerA} playerB={playerB} viewPlayer={viewPlayer}/>
+          <MomentumBar latest={latest} playerA={playerA} playerB={playerB}/>
+          <div className="grid-2">
+            <div className="card">
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                <h3 style={{margin:0}}>Win Probability</h3>
+                <div className="toggle-group">
+                  <button className={`toggle-btn${viewPlayer==='A'?' active':''}`} onClick={()=>setViewPlayer('A')}>
+                    {playerA.split(' ').pop()}
+                  </button>
+                  <button className={`toggle-btn${viewPlayer==='B'?' active':''}`} onClick={()=>setViewPlayer('B')}>
+                    {playerB.split(' ').pop()}
+                  </button>
+                </div>
+              </div>
+              <ProbChart data={enriched} viewPlayer={viewPlayer} playerA={playerA} playerB={playerB}/>
+              <LiveScrubber total={allPoints.length} scrubIdx={scrubIdx}
+                onScrub={idx=>setScrubIdx(idx)} onLive={()=>setScrubIdx(null)}/>
+            </div>
+            <div className="card">
+              <h3>Signal Breakdown</h3>
+              <SignalTable latest={latest} playerA={playerA} playerB={playerB}/>
+            </div>
+          </div>
+          <div className="grid-stats">
+            <div className="card">
+              <h3>Point-by-Point Recap</h3>
+              <PointRecap allPoints={visible} playerA={playerA} playerB={playerB}/>
+            </div>
+            <div className="card">
+              <h3>Match Stats</h3>
+              <MatchStats points={visible} playerA={playerA} playerB={playerB}/>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function LiveTab() {
+  const [selectedMatch, setSelectedMatch] = useState(null);
+  return (
+    <div className="tab-pane">
+      {selectedMatch === null ? (
+        <>
+          <div className="header">
+            <h1>Tennis Engine</h1>
+            <span className="badge"><span className="pulse"/>Live</span>
+          </div>
+          <Lobby onSelect={setSelectedMatch}/>
+        </>
+      ) : (
+        <MatchDetail
+          key={selectedMatch.match_id}
+          match={selectedMatch}
+          onBack={() => setSelectedMatch(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── History Tab (formerly Replay) ──────────────────────────────────────────
+
+const SPEEDS = [
+  {label:'0.5×',ms:2000},{label:'1×',ms:1000},{label:'2×',ms:500},
+  {label:'5×',ms:200},{label:'Max',ms:50},
+];
+
+function ReplayScoreBadge({ pt, sc, playerA, playerB }) {
+  if (!pt || !sc) return (
+    <div style={{padding:'12px 0',color:'#484f58',fontSize:'0.8rem'}}>
+      Press ▶ or drag the timeline to start.
+    </div>
+  );
+  const cA='#388bfd', cB='#f97316';
+  const srvA = pt.server==='home';
+  const completedSets = sc?.completedSets ?? [];
+  const numSets = completedSets.length + 1;
+  const setHeaders = Array.from({length: numSets}, (_, i) =>
+    i < completedSets.length ? `S${i+1}` : `S${i+1}*`
+  );
+  const homeSetVals = [...completedSets.map(s => s.h), sc.gamesA];
+  const awaySetVals = [...completedSets.map(s => s.a), sc.gamesB];
+
+  const getCellStyle = (val, oppVal, isCompleted) => {
+    if (!isCompleted) return { color: '#c9d1d9' };
+    return val > oppVal
+      ? { color: '#f0f6fc', fontWeight: 700 }
+      : { color: '#484f58' };
+  };
+
+  const scoreRow = (name, setVals, pts, color, srv) => (
+    <tr>
+      <td style={{color, fontWeight:600, paddingRight:16, whiteSpace:'nowrap',
+                  maxWidth:180, overflow:'hidden', textOverflow:'ellipsis'}}>
+        {srv && <span style={{color:'#3fb950',marginRight:6}}>●</span>}{name}
+      </td>
+      {setVals.map((val, i) => {
+        const opp = setVals === homeSetVals ? awaySetVals[i] : homeSetVals[i];
+        const isCompleted = i < completedSets.length;
+        return (
+          <td key={i} style={{textAlign:'center', padding:'0 8px',
+                              fontSize: isCompleted ? '1.0rem' : '1.2rem',
+                              fontWeight: isCompleted ? 500 : 700,
+                              fontVariantNumeric:'tabular-nums',
+                              ...getCellStyle(val, opp, isCompleted)}}>
+            {val ?? '—'}
+          </td>
+        );
+      })}
+      <td style={{textAlign:'center', padding:'0 10px', fontSize:'0.85rem',
+                  fontVariantNumeric:'tabular-nums', color:'#8b949e'}}>
+        {pts ?? '—'}
+      </td>
+    </tr>
+  );
+
+  return (
+    <div style={{padding:'12px 0'}}>
+      <table style={{borderCollapse:'collapse', fontSize:'0.85rem'}}>
+        <thead>
+          <tr>
+            <th style={{width:196}}></th>
+            {setHeaders.map(h => (
+              <th key={h} style={{textAlign:'center', padding:'0 8px',
+                                  fontSize:'0.62rem', color:'#6e7681',
+                                  textTransform:'uppercase',
+                                  letterSpacing:'0.08em', fontWeight:600}}>
+                {h}
+              </th>
+            ))}
+            <th style={{textAlign:'center', padding:'0 10px',
+                        fontSize:'0.62rem', color:'#6e7681',
+                        textTransform:'uppercase', letterSpacing:'0.08em',
+                        fontWeight:600}}>
+              Pts
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {scoreRow(playerA, homeSetVals, fmtSc(pt.home_point), cA, srvA)}
+          {scoreRow(playerB, awaySetVals, fmtSc(pt.away_point), cB, !srvA)}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function HistoryTab() {
+  const [matches,    setMatches]    = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
+  const [allPoints,  setAllPoints]  = useState([]);
+  const [scores,     setScores]     = useState([]);
+  const [error,      setError]      = useState(null);
+  const [curIdx,     setCurIdx]     = useState(-1);
+  const [playing,    setPlaying]    = useState(false);
+  const [speedMs,    setSpeedMs]    = useState(1000);
+  const [viewPlayer, setViewPlayer] = useState('A');
+
+  const timerRef   = useRef(null);
+  const playingRef = useRef(false);
+  const curIdxRef  = useRef(-1);
+  const speedRef   = useRef(1000);
+  const totalRef   = useRef(0);
+
+  useEffect(() => { playingRef.current = playing; }, [playing]);
+  useEffect(() => { curIdxRef.current  = curIdx;  }, [curIdx]);
+  useEffect(() => { speedRef.current   = speedMs; }, [speedMs]);
+
+  const stopTimer = useCallback(() => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+  }, []);
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/matches').then(r => r.json()),
+      fetch('/live_matches').then(r => r.json()).catch(() => []),
+    ]).then(([all, live]) => {
+      const liveIds = new Set(live.map(m => m.match_id));
+      setMatches(all.filter(m => !liveIds.has(m.match_id)));
+    }).catch(e => setError(e.message));
+  }, []);
+
+  const loadMatch = useCallback(async (id) => {
+    stopTimer(); setPlaying(false); playingRef.current=false;
+    setCurIdx(-1); curIdxRef.current=-1;
+    setAllPoints([]); setScores([]);
+    try {
+      const raw  = await fetch(`/match/${id}`).then(r=>r.json());
+      const data = deduplicatePoints(raw);
+      setAllPoints(data);
+      setScores(computeScores(data));
+      totalRef.current = data.length;
+    } catch(e) { setError(e.message); }
+  }, [stopTimer]);
+
+  useEffect(() => { if (selectedId) loadMatch(selectedId); }, [selectedId, loadMatch]);
+
+  const scheduleNext = useCallback(() => {
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      if (!playingRef.current) return;
+      const next = curIdxRef.current + 1;
+      if (next >= totalRef.current) { setPlaying(false); playingRef.current=false; return; }
+      curIdxRef.current = next; setCurIdx(next);
+      scheduleNext();
+    }, speedRef.current);
+  }, []);
+
+  const togglePlay = useCallback(() => {
+    if (playing) { stopTimer(); setPlaying(false); playingRef.current=false; return; }
+    if (curIdxRef.current >= totalRef.current - 1) { curIdxRef.current=-1; setCurIdx(-1); }
+    setPlaying(true); playingRef.current=true; scheduleNext();
+  }, [playing, stopTimer, scheduleNext]);
+
+  const scrubTo = useCallback((idx) => {
+    stopTimer(); setPlaying(false); playingRef.current=false;
+    curIdxRef.current=idx; setCurIdx(idx);
+  }, [stopTimer]);
+
+  const stepNext = useCallback(() => {
+    if (curIdxRef.current >= totalRef.current-1) return;
+    const n=curIdxRef.current+1; curIdxRef.current=n; setCurIdx(n);
+  }, []);
+
+  const stepPrev = useCallback(() => {
+    if (curIdxRef.current <= -1) return;
+    const n=curIdxRef.current-1; curIdxRef.current=n; setCurIdx(n);
+  }, []);
+
+  const total    = allPoints.length;
+  const visible  = curIdx>=0 ? allPoints.slice(0,curIdx+1) : [];
+  const curPt    = curIdx>=0 ? allPoints[curIdx] : null;
+  const curSc    = curIdx>=0 ? scores[curIdx]    : null;
+  const latest   = curPt;
+  const enriched = useMemo(() => enrichForPlayer(visible, viewPlayer), [visible, viewPlayer]);
+  const sel      = matches.find(m=>m.match_id===selectedId);
+  const playerA  = sel?.player_a ?? 'Home (A)';
+  const playerB  = sel?.player_b ?? 'Away (B)';
+
+  return (
+    <div className="tab-pane">
+      <div className="header">
+        <h1>Match History</h1>
+        <span className="badge">Historical</span>
+      </div>
+
+      {error && <div style={{color:'#f85149',marginBottom:12,fontSize:'0.8rem'}}>⚠ {error}</div>}
+
+      <select value={selectedId??''} onChange={e=>{const v=Number(e.target.value);setSelectedId(v||null);}}>
+        <option value="">— select match —</option>
+        {matches.map(m=>(
+          <option key={m.match_id} value={m.match_id}>{m.player_a} vs {m.player_b}  (#{m.match_id})</option>
+        ))}
+      </select>
+
+      {!selectedId && <p className="empty" style={{marginTop:40}}>Select a completed match above to replay.</p>}
+      {selectedId && total===0 && <p className="empty" style={{marginTop:40}}>Loading …</p>}
+
+      {total > 0 && (
+        <>
+          {sel && <h2 style={{marginTop:16}}>{playerA} vs {playerB}</h2>}
+
+          {/* Score + probabilities + edge — identical to Live tab */}
+          <ScoreBadge latest={latest} sc={curSc} playerA={playerA} playerB={playerB} viewPlayer={viewPlayer}/>
+          <MomentumBar latest={latest} playerA={playerA} playerB={playerB}/>
+
+          <div className="replay-body">
+            {/* LEFT COLUMN — playback controls */}
+            <div className="replay-left">
+              <div className="card">
+                <div className="sec-label">Playback</div>
+                <div className="ctrl-row">
+                  <button className="ctrl-btn" title="Restart"  onClick={()=>scrubTo(-1)}>⏮</button>
+                  <button className="ctrl-btn" title="−10 pts"  onClick={()=>scrubTo(Math.max(-1,curIdx-10))}>⏪</button>
+                  <button className="ctrl-btn" title="Prev"     onClick={stepPrev}>◂</button>
+                  <button className={`ctrl-btn play${playing?' on':''}`} onClick={togglePlay}>
+                    {playing?'⏸':'▶'}
+                  </button>
+                  <button className="ctrl-btn" title="Next"     onClick={stepNext}>▸</button>
+                  <button className="ctrl-btn" title="+10 pts"  onClick={()=>scrubTo(Math.min(total-1,curIdx+10))}>⏩</button>
+                </div>
+
+                <div className="sec-label" style={{marginTop:14}}>Speed</div>
+                <div className="ctrl-row">
+                  {SPEEDS.map(opt=>(
+                    <button key={opt.ms}
+                      className={`speed-pill${speedMs===opt.ms?' active':''}`}
+                      onClick={()=>{setSpeedMs(opt.ms);speedRef.current=opt.ms;}}>
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="sec-label" style={{marginTop:14}}>
+                  Timeline — Pt {curIdx+1} / {total}
+                </div>
+                <input type="range" min={-1} max={total-1} value={curIdx}
+                  onChange={e=>scrubTo(+e.target.value)} className="scrubber"/>
+              </div>
+
+              <div className="card">
+                <div className="sec-label">Current Point</div>
+                {curPt ? (
+                  <div className="pt-info">
+                    <div><span className="pt-info-k">Set / Game</span>S{curPt.set_num} · G{curPt.game_num}</div>
+                    <div>
+                      <span className="pt-info-k">Server</span>
+                      <span style={{color:curPt.server==='home'?'#388bfd':'#f97316'}}>
+                        {SIDE[curPt.server]} — {curPt.server==='home'?playerA:playerB}
+                      </span>
+                    </div>
+                    <div><span className="pt-info-k">Score</span>{fmtSc(curPt.home_point)} – {fmtSc(curPt.away_point)}</div>
+                    <div>
+                      <span className="pt-info-k">Winner</span>
+                      <span style={{color:curPt.point_winner==='home'?'#388bfd':'#f97316'}}>
+                        {SIDE[curPt.point_winner]} — {curPt.point_winner==='home'?playerA:playerB}
+                      </span>
+                    </div>
+                    {curPt.is_ace          && <div className="pos">Ace</div>}
+                    {curPt.is_double_fault && <div className="neg">Double Fault</div>}
+                  </div>
+                ) : (
+                  <p style={{color:'#484f58',fontSize:'0.75rem',padding:4}}>
+                    Press ▶ or drag the timeline.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* MAIN — same layout as Live tab */}
+            <div style={{display:'flex',flexDirection:'column',gap:20}}>
+              <div className="grid-2">
+                <div className="card">
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                    <h3 style={{margin:0}}>Win Probability</h3>
+                    <div className="toggle-group">
+                      <button className={`toggle-btn${viewPlayer==='A'?' active':''}`} onClick={()=>setViewPlayer('A')}>
+                        {playerA.split(' ').pop()}
+                      </button>
+                      <button className={`toggle-btn${viewPlayer==='B'?' active':''}`} onClick={()=>setViewPlayer('B')}>
+                        {playerB.split(' ').pop()}
+                      </button>
+                    </div>
+                  </div>
+                  <ProbChart data={enriched} viewPlayer={viewPlayer} playerA={playerA} playerB={playerB}/>
+                  <div style={{marginTop:8}}>
+                    <EdgeChart data={enriched}/>
+                  </div>
+                </div>
+                <div className="card">
+                  <h3>Signal Breakdown</h3>
+                  <SignalTable latest={latest} playerA={playerA} playerB={playerB}/>
+                </div>
+              </div>
+
+              <div className="grid-stats">
+                <div className="card">
+                  <h3>Point-by-Point Recap</h3>
+                  <PointRecap allPoints={visible} playerA={playerA} playerB={playerB}/>
+                </div>
+                <div className="card">
+                  <h3>Match Stats</h3>
+                  <MatchStats points={visible} playerA={playerA} playerB={playerB}/>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Root ───────────────────────────────────────────────────────────────────
+
+function App() {
+  const [tab, setTab] = useState('live');
+  return (
+    <div>
+      <div className="tab-bar">
+        <button className={`tab-btn${tab==='live'?' active':''}`} onClick={()=>setTab('live')}>
+          ● Live
+        </button>
+        <button className={`tab-btn${tab==='history'?' active':''}`} onClick={()=>setTab('history')}>
+          ⏪ History
+        </button>
+      </div>
+      {tab==='live' ? <LiveTab/> : <HistoryTab/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
