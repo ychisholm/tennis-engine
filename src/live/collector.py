@@ -25,6 +25,9 @@ _ODDS_MIN_INTERVAL = 300.0  # seconds between successive odds fetches per match
 _ACTIVE_IDS_LOCK = threading.Lock()
 ACTIVE_MATCH_IDS: set[int] = set()
 
+# Maps match_id → (country_a_alpha2, country_b_alpha2) for the live-match detail merge.
+COUNTRY_MAP: dict[int, tuple[str | None, str | None]] = {}
+
 
 class MatchWorker:
     """
@@ -43,6 +46,9 @@ class MatchWorker:
         self._match_id        = event["id"]
         self._player_a        = event["homeTeam"]["name"]
         self._player_b        = event["awayTeam"]["name"]
+        self._country_a       = ((event.get("homeTeam") or {}).get("country") or {}).get("alpha2")
+        self._country_b       = ((event.get("awayTeam") or {}).get("country") or {}).get("alpha2")
+        COUNTRY_MAP[self._match_id] = (self._country_a, self._country_b)
         self._tournament_id   = (
             (event.get("tournament") or {})
             .get("uniqueTournament", {})

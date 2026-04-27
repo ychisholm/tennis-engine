@@ -104,6 +104,8 @@ class TennisFeed:
                     continue
                 home = (event.get("homeTeam") or {}).get("name", "Unknown")
                 away = (event.get("awayTeam") or {}).get("name", "Unknown")
+                country_a = ((event.get("homeTeam") or {}).get("country") or {}).get("alpha2")
+                country_b = ((event.get("awayTeam") or {}).get("country") or {}).get("alpha2")
                 tournament = (event.get("tournament") or {}).get("name", "Unknown")
                 category_slug = (
                     (event.get("tournament") or {})
@@ -114,6 +116,8 @@ class TennisFeed:
                     "match_id": int(match_id),
                     "player_a": home,
                     "player_b": away,
+                    "country_a": country_a,
+                    "country_b": country_b,
                     "tournament": tournament,
                     "scheduled_start_unix": int(start_ts),
                     "tour": category_slug.upper(),

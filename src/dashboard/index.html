@@ -467,6 +467,13 @@ function lastName(name) {
   return name.trim().split(/\s+/).pop();
 }
 
+const countryFlag = (alpha2) => {
+  if (!alpha2) return '';
+  return alpha2.toUpperCase().split('').map(c =>
+    String.fromCodePoint(0x1F1E6 + c.charCodeAt(0) - 65)
+  ).join('');
+};
+
 function inferGameWinner(hp, ap, pw, hasNext) {
   const isTB = !STD.has(hp) || !STD.has(ap);
   if (isTB) {
@@ -615,23 +622,21 @@ function MatchCard({ match, kind, onClick }) {
       </div>
       <div className="card-players">
         <div className={`player-row${kind === 'live' && servingA ? ' serving' : ''}`}>
-          {match.flag_a && <div className="player-flag">{match.flag_a}</div>}
           {match.seed_a != null && <div className="player-seed">{match.seed_a}</div>}
-          <div className={`player-name${nameClassA}`}>{match.player_a}</div>
+          <div className={`player-name${nameClassA}`}>{countryFlag(match.country_a)} {match.player_a}</div>
           {renderSetsRow('a')}
         </div>
         <div className={`player-row${kind === 'live' && servingB ? ' serving' : ''}`}>
-          {match.flag_b && <div className="player-flag">{match.flag_b}</div>}
           {match.seed_b != null && <div className="player-seed">{match.seed_b}</div>}
-          <div className={`player-name${nameClassB}`}>{match.player_b}</div>
+          <div className={`player-name${nameClassB}`}>{countryFlag(match.country_b)} {match.player_b}</div>
           {renderSetsRow('b')}
         </div>
       </div>
       {kind === 'live' && match.model_prob_a != null && (
         <div className="prob-bar-wrap">
           <div className="prob-bar-labels">
-            <span className="lbl-a">{lastName(match.player_a)} {(match.model_prob_a*100).toFixed(0)}%</span>
-            <span className="lbl-b">{((1-match.model_prob_a)*100).toFixed(0)}% {lastName(match.player_b)}</span>
+            <span className="lbl-a">{countryFlag(match.country_a)}{lastName(match.player_a)} {(match.model_prob_a*100).toFixed(0)}%</span>
+            <span className="lbl-b">{((1-match.model_prob_a)*100).toFixed(0)}% {countryFlag(match.country_b)}{lastName(match.player_b)}</span>
           </div>
           <div className="prob-bar">
             <div className="prob-bar-a" style={{width:(match.model_prob_a*100)+'%'}}/>
@@ -1273,8 +1278,8 @@ function MatchDetail({ match, onBack }) {
   const visible     = isScrubbing ? allPoints.slice(0, scrubIdx+1) : allPoints;
   const enriched    = useMemo(() => enrichForPlayer(visible, viewPlayer), [visible, viewPlayer]);
   const latest      = visible[visible.length-1] ?? null;
-  const playerA     = match.player_a ?? 'Home (A)';
-  const playerB     = match.player_b ?? 'Away (B)';
+  const playerA     = `${countryFlag(match.country_a) ? countryFlag(match.country_a) + ' ' : ''}${match.player_a ?? 'Home (A)'}`;
+  const playerB     = `${countryFlag(match.country_b) ? countryFlag(match.country_b) + ' ' : ''}${match.player_b ?? 'Away (B)'}`;
   const liveScores  = useMemo(() => computeScores(allPoints), [allPoints]);
   const latestScore = visible.length > 0 ? liveScores[visible.length - 1] : null;
 
@@ -1331,7 +1336,7 @@ function App() {
   const closeMatch = ()  => { setTab('live'); };
 
   const matchTabLabel = selectedMatch
-    ? `${lastName(selectedMatch.player_a)} · ${lastName(selectedMatch.player_b)}`
+    ? `${countryFlag(selectedMatch.country_a)}${lastName(selectedMatch.player_a)} · ${countryFlag(selectedMatch.country_b)}${lastName(selectedMatch.player_b)}`
     : null;
 
   return (

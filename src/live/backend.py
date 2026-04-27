@@ -8,7 +8,7 @@ from typing import Any
 import duckdb
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, Response
-from src.live.collector import ACTIVE_MATCH_IDS
+from src.live.collector import ACTIVE_MATCH_IDS, COUNTRY_MAP
 from src.live.tennis_feed import TennisFeed
 
 _log = logging.getLogger(__name__)
@@ -95,6 +95,10 @@ def list_live_matches():
         result = _safe_df_to_json(conn, sql, list(ACTIVE_MATCH_IDS))
     finally:
         conn.close()
+    for row in result:
+        ca, cb = COUNTRY_MAP.get(row["match_id"], (None, None))
+        row["country_a"] = ca
+        row["country_b"] = cb
     return result
 
 
