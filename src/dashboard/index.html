@@ -733,13 +733,17 @@ function LiveAndUpcomingTab({ onSelect }) {
     return s;
   }, [liveMatches]);
 
-  // Combine + dedupe upcoming items that are already live, and drop dupes by match_id.
+  // Drop past-dated entries (the /upcoming_matches feed leaks today's already-
+  // completed matches because the backend has no status field), de-dupe match_id,
+  // and exclude anything already in /live_matches.
   const upSorted = useMemo(() => {
+    const nowSec = Date.now() / 1000;
     const seen = new Set();
     const out = [];
     for (const m of upcoming) {
       if (liveById.has(m.match_id)) continue;
       if (seen.has(m.match_id)) continue;
+      if (m.scheduled_start_unix != null && m.scheduled_start_unix < nowSec) continue;
       seen.add(m.match_id);
       out.push(m);
     }
