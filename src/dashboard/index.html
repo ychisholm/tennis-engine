@@ -322,19 +322,24 @@ body{
 .set-tab-btn.active{background:var(--clay);color:#fff;border-color:var(--clay)}
 .pbp-wrap{max-height:380px;overflow-y:auto;padding-right:4px;margin-top:4px}
 .game-block{border:1px solid var(--rule);border-radius:8px;overflow:hidden;margin-bottom:8px}
-.game-block-hdr{display:flex;align-items:center;gap:10px;padding:7px 11px;background:rgba(217,198,168,.18)}
-.game-sc{font-family:'Cormorant Garamond',serif;font-size:0.95rem;font-weight:600;font-style:italic;color:var(--ink);min-width:44px}
-.game-win{font-size:0.72rem;font-weight:500;color:var(--ink-2);font-family:'Cormorant Garamond',serif;font-style:italic}
+.game-block-inner{display:flex;align-items:center;gap:8px;padding:7px 11px;background:rgba(217,198,168,.18)}
+.game-sc{font-family:'Cormorant Garamond',serif;font-size:0.95rem;font-weight:600;font-style:italic;color:var(--ink);min-width:32px;flex-shrink:0}
 .bp-tag{font-size:0.55rem;font-weight:800;letter-spacing:0.06em;color:var(--clay);background:rgba(200,90,51,.1);padding:1px 5px;border-radius:3px;border:1px solid rgba(200,90,51,.25)}
-.game-block-body{padding:8px 11px}
-.pt-seq-row{display:flex;flex-wrap:wrap;gap:3px;align-items:flex-end}
-.pt-col{display:flex;flex-direction:column;align-items:center;gap:2px}
+.pbp-names{display:flex;flex-direction:column;min-width:56px;max-width:88px;flex-shrink:0}
+.pbp-srv-row{display:flex;align-items:center;gap:3px;height:14px;font-size:0.67rem;font-weight:500;color:var(--ink-2)}
+.pbp-lbl-gap{height:14px}
+.pbp-ret-row{display:flex;align-items:center;height:14px;font-size:0.67rem;color:var(--ink-3)}
+.pbp-name-txt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srv-dot{color:var(--edge);font-size:7px;flex-shrink:0;line-height:1}
+.pbp-pts{display:flex;gap:3px;flex-wrap:wrap;align-items:flex-start}
+.pt-col2{display:flex;flex-direction:column;align-items:center}
+.pt-cell{width:12px;height:14px;display:flex;align-items:center;justify-content:center}
 .pt-pip{width:10px;height:10px;border-radius:2px;flex-shrink:0}
 .pt-pip.pa{background:var(--ink)}
 .pt-pip.pb{background:var(--clay)}
 .pt-pip.bp-mark{outline:1.5px solid var(--edge-neu);outline-offset:1px}
-.pt-sc-lbl{font-size:0.55rem;font-weight:600;color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
-.pt-sc-lbl.ge{font-weight:700;color:var(--ink)}
+.pt-pip.game-w{background:#2d6a2d;display:flex;align-items:center;justify-content:center;color:#fff;font-size:6px;font-weight:700;letter-spacing:0}
+.pt-sc-lbl{height:14px;display:flex;align-items:center;font-size:0.5rem;font-weight:600;color:var(--ink-3);font-variant-numeric:tabular-nums;white-space:nowrap}
 .pt-live-note{padding:10px 0 2px;font-size:0.7rem;font-weight:600;color:var(--clay);font-family:'Cormorant Garamond',serif;font-style:italic;letter-spacing:0.04em}
 
 /* Match Stats */
@@ -475,6 +480,7 @@ const countryFlag = (alpha2) => {
 };
 
 function inferGameWinner(hp, ap, pw, hasNext) {
+  if (hp === 'G' || ap === 'G') return pw;  // synthetic game-winner point
   const isTB = !STD.has(hp) || !STD.has(ap);
   if (isTB) {
     if (!hasNext) return null;
@@ -1160,33 +1166,46 @@ function PointByPoint({ allPoints, playerA, playerB }) {
     if (winner === 'home') runH++;
     else if (winner === 'away') runA++;
     const sc = `${runH}–${runA}`;
-    const winName = winner === 'home' ? lastName(playerA) : winner === 'away' ? lastName(playerB) : '—';
-
     // First point's server tells us who served this game.
     const srv = g.points[0]?.server;
     const isBreak = winner && srv && winner !== srv;
     const hasBP   = g.points.some(p => isBP(p));
+    const srvName = srv === 'home' ? lastName(playerA) : srv === 'away' ? lastName(playerB) : '?';
+    const retName = srv === 'home' ? lastName(playerB) : srv === 'away' ? lastName(playerA) : '?';
 
     return (
       <div className="game-block" key={`${g.set}-${g.game}`}>
-        <div className="game-block-hdr">
+        <div className="game-block-inner">
           <span className="game-sc">{sc}</span>
-          <span className="game-win">{winName}</span>
-          {isBreak && <span className="bp-tag">Break</span>}
-          {!isBreak && hasBP && <span className="bp-tag">BP</span>}
-        </div>
-        <div className="game-block-body">
-          <div className="pt-seq-row">
+          <div className="pbp-names">
+            <div className="pbp-srv-row">
+              {srv && <span className="srv-dot">●</span>}
+              <span className="pbp-name-txt">{srvName}</span>
+              {isBreak && <span className="bp-tag">Break</span>}
+              {!isBreak && hasBP && <span className="bp-tag">BP</span>}
+            </div>
+            <div className="pbp-lbl-gap"/>
+            <div className="pbp-ret-row">
+              <span className="pbp-name-txt">{retName}</span>
+            </div>
+          </div>
+          <div className="pbp-pts">
             {g.points.map((pt, pi) => {
-              const wonHome = pt.point_winner === 'home';
-              const isLast  = pi === g.points.length - 1;
-              const lbl = isLast && winner
+              const isGameWin = pt.home_point === 'G';
+              const srvWon = pt.point_winner === srv;
+              const isLast = pi === g.points.length - 1;
+              const lbl = (isLast && winner) || isGameWin
                 ? sc
                 : `${fmtSc(pt.home_point)}–${fmtSc(pt.away_point)}`;
               return (
-                <div className="pt-col" key={pi}>
-                  <div className={`pt-pip ${wonHome ? 'pa' : 'pb'}${isBP(pt) ? ' bp-mark' : ''}`}/>
-                  <div className={`pt-sc-lbl${isLast && winner ? ' ge' : ''}`}>{lbl}</div>
+                <div className="pt-col2" key={pi}>
+                  <div className="pt-cell">
+                    {srvWon && <div className={`pt-pip${isGameWin ? ' game-w' : ` pa${isBP(pt) ? ' bp-mark' : ''}`}`}>{isGameWin ? 'G' : ''}</div>}
+                  </div>
+                  <div className="pt-sc-lbl">{lbl}</div>
+                  <div className="pt-cell">
+                    {!srvWon && <div className={`pt-pip${isGameWin ? ' game-w' : ` pb${isBP(pt) ? ' bp-mark' : ''}`}`}>{isGameWin ? 'G' : ''}</div>}
+                  </div>
                 </div>
               );
             })}
