@@ -382,8 +382,9 @@ const {
 function deduplicatePoints(pts) {
   const seen = new Set();
   return pts.filter(p => {
-    if (seen.has(p.point_num)) return false;
-    seen.add(p.point_num);
+    const key = `${p.point_num}|${p.set_num}|${p.game_num}|${p.home_point}|${p.away_point}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
     return true;
   });
 }
@@ -428,12 +429,7 @@ function computeScores(pts) {
     if (prev) {
       const setChg     = cur.set_num > prev.set_num;
       const gameNumChg = cur.game_num !== prev.game_num;
-      const scoreReset = !gameNumChg && !setChg && (
-        (cur.home_point === '15' && cur.away_point === '0') ||
-        (cur.home_point === '0'  && cur.away_point === '15')
-      );
-      const gameChg = gameNumChg || scoreReset;
-      if (setChg || gameChg) {
+      if (setChg || gameNumChg) {
         const w = inferGameWinner(
           prev.home_point, prev.away_point, prev.point_winner, true
         );

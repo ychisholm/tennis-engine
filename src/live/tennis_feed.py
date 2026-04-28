@@ -191,8 +191,14 @@ class TennisFeed:
                 game_out = local_game_num
 
                 for point in game_data.get("points", []):
+                    # Normalise "A" (alternate advantage notation) to "AD" so
+                    # the pipeline always sees a single token for advantage.
                     home_score = str(point.get("homePoint", "0"))
                     away_score = str(point.get("awayPoint", "0"))
+                    if home_score == "A":
+                        home_score = "AD"
+                    if away_score == "A":
+                        away_score = "AD"
 
                     # ── Derive game number ───────────────────────────────────
                     if self._is_tiebreak_score(home_score, away_score):
