@@ -188,8 +188,7 @@ class TennisFeed:
             for game_data in games:
                 score  = game_data.get("score", {})
                 server = "home" if score.get("serving", 1) == 1 else "away"
-                game_out   = local_game_num  # updated per-point; used for synthetic G
-                added_any  = False           # tracks whether any real points were appended
+                game_out = local_game_num
 
                 for point in game_data.get("points", []):
                     home_score = str(point.get("homePoint", "0"))
@@ -231,24 +230,6 @@ class TennisFeed:
                         "point_winner":     point_winner,
                         "is_ace":           desc == 1,
                         "is_double_fault":  desc == 2,
-                        "game_number":      game_out,
-                        "set_number":       set_number,
-                    })
-                    added_any = True
-
-                # The SofaScore API omits the game-winning point from the points
-                # array; score.scoring declares the winner.  Synthesise a "G"
-                # point so the display shows the correct number of points and can
-                # render a distinct game-winner box.
-                if added_any and score.get("scoring", 0) != 0:
-                    winner_side = "home" if score["scoring"] == 1 else "away"
-                    points.append({
-                        "server":           server,
-                        "home_point_score": "G",
-                        "away_point_score": "G",
-                        "point_winner":     winner_side,
-                        "is_ace":           False,
-                        "is_double_fault":  False,
                         "game_number":      game_out,
                         "set_number":       set_number,
                     })
