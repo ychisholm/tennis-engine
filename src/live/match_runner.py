@@ -57,6 +57,10 @@ class MatchRunner:
         self._match_id = match_id
         self._player_a_name: str = player_a.get("name", "Home")
         self._player_b_name: str = player_b.get("name", "Away")
+        self._player_a_dict = player_a
+        self._player_b_dict = player_b
+        self._surface = surface
+        self._best_of = best_of
         self._tournament_id: int | None = tournament_id
         self._feed = TennisFeed(api_key=api_key)
         self._odds_feed = OddsFeed(api_key=api_key)
@@ -67,6 +71,7 @@ class MatchRunner:
             best_of=best_of,
         )
         self._points_seen = 0
+        self._last_point_processed: dict | None = None
         self._last_odds: dict | None = None
         self._last_bookmaker_prob: float | None = None
         self._log = log_fn
@@ -142,6 +147,21 @@ class MatchRunner:
         self._last_odds = {"home_implied_prob": bookmaker_prob} if bookmaker_prob is not None else None
 
         all_points = self._feed.translate_to_engine_format(raw)
+
+        if self._points_seen > 0:
+            is_shrinkage = len(all_points) < self._points_seen
+            is_mutation = (
+                not is_shrinkage
+                and self._last_point_processed is not None
+                and all_points[self._points_seen - 1] != self._last_point_processed
+            )
+            if is_shrinkage or is_mutation:
+                self._log(
+                    f"[fingerprint] API rollback/mutation detected — "
+                    f"resetting engine and replaying all {len(all_points)} points."
+                )
+                self._reset_engine()
+
         new_points = all_points[self._points_seen:]
 
         for pt in new_points:
@@ -183,7 +203,19 @@ class MatchRunner:
                     )
                 except Exception as exc:
                     self._log(f"[log_processed_state error] {exc}")
+            self._last_point_processed = pt
             self._points_seen += 1
+
+    def _reset_engine(self) -> None:
+        """Rebuild the engine and rewind so the next poll replays all points."""
+        self._engine = LiveMatch(
+            player_a=self._player_a_dict,
+            player_b=self._player_b_dict,
+            surface=self._surface,
+            best_of=self._best_of,
+        )
+        self._points_seen = 0
+        self._last_point_processed = None
 
     def _print_row(self, result: dict, odds: dict | None) -> None:
         ms = result["match_state"]

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
 enrich_dashboard_log.py — Replay backfilled raw points through the
-LiveMatch engine, attach historical odds via ASOF JOIN, and write fully
-populated rows to live_processed.dashboard_log so the React dashboard
-History tab renders correctly.
+LiveMatch engine, attach historical odds via a PostgreSQL LATERAL JOIN,
+and write fully populated rows to live_processed.dashboard_log so the
+React dashboard History tab renders correctly.
 
 Usage (from project root):
     .venv/bin/python scripts/backtesting/enrich_dashboard_log.py
@@ -11,6 +11,7 @@ Usage (from project root):
 from __future__ import annotations
 
 import math
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,14 +19,12 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))
 
-import duckdb
+import psycopg2
 from dotenv import load_dotenv
 
 load_dotenv(_ROOT / ".env")
 
 from src.engine.live_match import LiveMatch
-
-_DB_PATH = _ROOT / "data" / "processed" / "tennis.duckdb"
 
 _DEFAULT_PLAYER: dict = {
     "p0_hard":   0.63,
@@ -47,79 +46,92 @@ def _clean(v: object) -> object:
     return v
 
 
+# ── DB connection ─────────────────────────────────────────────────────────────
+
+def _get_conn():
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise RuntimeError("DATABASE_URL environment variable is not set.")
+    return psycopg2.connect(url)
+
+
 # ── DB setup ──────────────────────────────────────────────────────────────────
 
-def _ensure_tables(conn: duckdb.DuckDBPyConnection) -> None:
-    conn.execute("CREATE SCHEMA IF NOT EXISTS live_raw")
-    conn.execute("CREATE SCHEMA IF NOT EXISTS live_processed")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS live_processed.dashboard_log (
-            ts               TIMESTAMP,
-            match_id         INTEGER,
-            player_a         VARCHAR,
-            player_b         VARCHAR,
-            set_num          INTEGER,
-            game_num         INTEGER,
-            point_num        INTEGER,
-            home_point       VARCHAR,
-            away_point       VARCHAR,
-            server           VARCHAR,
-            point_winner     VARCHAR,
-            is_ace           BOOLEAN,
-            is_double_fault  BOOLEAN,
-            model_prob_a     FLOAT,
-            bookmaker_prob_a FLOAT,
-            edge             FLOAT,
-            d_a              FLOAT,
-            d_b              FLOAT,
-            nmi_a            FLOAT,
-            nmi_b            FLOAT,
-            sms_a            FLOAT,
-            sms_b            FLOAT,
-            rms_a            FLOAT,
-            rms_b            FLOAT,
-            pms_a            FLOAT,
-            pms_b            FLOAT,
-            gps_a            FLOAT,
-            gps_b            FLOAT,
-            sets_a           INTEGER,
-            sets_b           INTEGER,
-            games_a          INTEGER,
-            games_b          INTEGER,
-            ingestion_source VARCHAR,
-            tournament_name  VARCHAR,
-            category         VARCHAR
-        )
-    """)
+def _ensure_tables(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute("CREATE SCHEMA IF NOT EXISTS live_raw")
+        cur.execute("CREATE SCHEMA IF NOT EXISTS live_processed")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS live_processed.dashboard_log (
+                ts               TIMESTAMPTZ,
+                match_id         INTEGER,
+                player_a         VARCHAR,
+                player_b         VARCHAR,
+                set_num          INTEGER,
+                game_num         INTEGER,
+                point_num        INTEGER,
+                home_point       VARCHAR,
+                away_point       VARCHAR,
+                server           VARCHAR,
+                point_winner     VARCHAR,
+                is_ace           BOOLEAN,
+                is_double_fault  BOOLEAN,
+                model_prob_a     FLOAT,
+                bookmaker_prob_a FLOAT,
+                edge             FLOAT,
+                d_a              FLOAT,
+                d_b              FLOAT,
+                nmi_a            FLOAT,
+                nmi_b            FLOAT,
+                sms_a            FLOAT,
+                sms_b            FLOAT,
+                rms_a            FLOAT,
+                rms_b            FLOAT,
+                pms_a            FLOAT,
+                pms_b            FLOAT,
+                gps_a            FLOAT,
+                gps_b            FLOAT,
+                sets_a           INTEGER,
+                sets_b           INTEGER,
+                games_a          INTEGER,
+                games_b          INTEGER,
+                ingestion_source VARCHAR,
+                tournament_name  VARCHAR,
+                category         VARCHAR
+            )
+        """)
+    conn.commit()
 
 
 # ── Data loading ──────────────────────────────────────────────────────────────
 
-def _list_matches(conn: duckdb.DuckDBPyConnection) -> list[dict]:
-    rows = conn.execute("""
-        SELECT
-            p.match_id,
-            ANY_VALUE(p.player_a)        AS player_a,
-            ANY_VALUE(p.player_b)        AS player_b,
-            ANY_VALUE(p.tournament_name) AS tournament_name,
-            COUNT(*)                     AS num_points,
-            COALESCE(ANY_VALUE(o.num_polls), 0) AS num_polls,
-            COALESCE(ANY_VALUE(d.enriched), 0)  AS already_enriched
-        FROM live_raw.tennisapi_points p
-        LEFT JOIN (
-            SELECT match_id, COUNT(*) AS num_polls
-            FROM live_raw.oddsapi_polls
-            GROUP BY match_id
-        ) o ON p.match_id = o.match_id
-        LEFT JOIN (
-            SELECT match_id, COUNT(*) AS enriched
-            FROM live_processed.dashboard_log
-            WHERE model_prob_a IS NOT NULL
-            GROUP BY match_id
-        ) d ON p.match_id = d.match_id
-        GROUP BY p.match_id
-        ORDER BY p.match_id DESC
-    """).fetchall()
+def _list_matches(conn) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT
+                p.match_id,
+                MAX(p.player_a)        AS player_a,
+                MAX(p.player_b)        AS player_b,
+                MAX(p.tournament_name) AS tournament_name,
+                COUNT(*)               AS num_points,
+                COALESCE(MAX(o.num_polls), 0) AS num_polls,
+                COALESCE(MAX(d.enriched), 0)  AS already_enriched
+            FROM live_raw.tennisapi_points p
+            LEFT JOIN (
+                SELECT match_id, COUNT(*) AS num_polls
+                FROM live_raw.oddsapi_polls
+                GROUP BY match_id
+            ) o ON p.match_id = o.match_id
+            LEFT JOIN (
+                SELECT match_id, COUNT(*) AS enriched
+                FROM live_processed.dashboard_log
+                WHERE model_prob_a IS NOT NULL
+                GROUP BY match_id
+            ) d ON p.match_id = d.match_id
+            GROUP BY p.match_id
+            ORDER BY p.match_id DESC
+        """)
+        rows = cur.fetchall()
     return [
         {
             "match_id":         r[0],
@@ -134,28 +146,35 @@ def _list_matches(conn: duckdb.DuckDBPyConnection) -> list[dict]:
     ]
 
 
-def _load_joined_points(conn: duckdb.DuckDBPyConnection, match_id: int) -> list[dict]:
-    """Load points with odds attached via ASOF LEFT JOIN.
+def _load_joined_points(conn, match_id: int) -> list[dict]:
+    """Load points with odds attached via a PostgreSQL LATERAL JOIN.
 
-    Each point receives the most recent odds poll whose timestamp is at or
-    before the point's timestamp.  Synthetic timestamps in tennisapi_points
-    (spaced 45 s apart from startTimestamp) make this chronologically correct.
-    Points that precede the first odds snapshot get NULL bookmaker_prob_a.
+    For each point, the LATERAL subquery finds the most recent odds poll
+    whose timestamp is at or before the point's timestamp — equivalent to
+    DuckDB's ASOF LEFT JOIN.  Points that precede the first odds snapshot
+    receive NULL bookmaker_prob_a.
     """
-    rows = conn.execute("""
-        SELECT
-            p.ts, p.match_id, p.player_a, p.player_b,
-            p.point_num, p.set_num, p.game_num,
-            p.home_point, p.away_point, p.server, p.point_winner,
-            p.is_ace, p.is_double_fault,
-            p.ingestion_source, p.tournament_name, p.category,
-            o.bookmaker_prob_a
-        FROM live_raw.tennisapi_points p
-        ASOF LEFT JOIN live_raw.oddsapi_polls o
-            ON p.match_id = o.match_id AND p.ts >= o.ts
-        WHERE p.match_id = ?
-        ORDER BY p.point_num ASC
-    """, [match_id]).fetchall()
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT
+                p.ts, p.match_id, p.player_a, p.player_b,
+                p.point_num, p.set_num, p.game_num,
+                p.home_point, p.away_point, p.server, p.point_winner,
+                p.is_ace, p.is_double_fault,
+                p.ingestion_source, p.tournament_name, p.category,
+                o.bookmaker_prob_a
+            FROM live_raw.tennisapi_points p
+            LEFT JOIN LATERAL (
+                SELECT bookmaker_prob_a
+                FROM live_raw.oddsapi_polls
+                WHERE match_id = p.match_id AND ts <= p.ts
+                ORDER BY ts DESC
+                LIMIT 1
+            ) o ON TRUE
+            WHERE p.match_id = %s
+            ORDER BY p.point_num ASC
+        """, [match_id])
+        rows = cur.fetchall()
 
     cols = [
         "ts", "match_id", "player_a", "player_b",
@@ -181,21 +200,21 @@ INSERT INTO live_processed.dashboard_log (
     sets_a, sets_b, games_a, games_b,
     ingestion_source, tournament_name, category
 ) VALUES (
-    ?, ?, ?, ?,
-    ?, ?, ?,
-    ?, ?, ?, ?, ?, ?,
-    ?, ?, ?,
-    ?, ?,
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?,
-    ?, ?, ?
+    %s, %s, %s, %s,
+    %s, %s, %s,
+    %s, %s, %s, %s, %s, %s,
+    %s, %s, %s,
+    %s, %s,
+    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+    %s, %s, %s, %s,
+    %s, %s, %s
 )
 """
 
 
-def _enrich_match(conn: duckdb.DuckDBPyConnection, match_id: int) -> int:
+def _enrich_match(conn, match_id: int) -> int:
     """Replay the match through LiveMatch, attach odds, write to dashboard_log.
-    Returns number of rows inserted.
+    Returns the number of rows inserted.
     """
     points = _load_joined_points(conn, match_id)
     if not points:
@@ -227,8 +246,8 @@ def _enrich_match(conn: duckdb.DuckDBPyConnection, match_id: int) -> int:
             result = engine.process_point({"winner": winner_e, "serving": serving_e})
             last_result = result
         except RuntimeError:
-            # Engine declared match over; reuse final state so every raw point
-            # still gets a dashboard_log row.
+            # Engine declared match over; reuse final state so every raw
+            # point still gets a dashboard_log row.
             result = last_result
 
         ms    = result["match_state"]
@@ -246,8 +265,9 @@ def _enrich_match(conn: duckdb.DuckDBPyConnection, match_id: int) -> int:
         )
 
         ts = pt["ts"]
-        if isinstance(ts, datetime) and ts.tzinfo is not None:
-            ts = ts.replace(tzinfo=None)
+        # Ensure tz-aware; psycopg2 returns aware datetimes for TIMESTAMPTZ.
+        if isinstance(ts, datetime) and ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
 
         rows_to_insert.append([
             ts,
@@ -287,17 +307,17 @@ def _enrich_match(conn: duckdb.DuckDBPyConnection, match_id: int) -> int:
             pt["category"],
         ])
 
-    conn.execute("BEGIN")
     try:
-        conn.execute(
-            "DELETE FROM live_processed.dashboard_log WHERE match_id = ?",
-            [match_id],
-        )
-        for row in rows_to_insert:
-            conn.execute(_INSERT_DASHBOARD, row)
-        conn.execute("COMMIT")
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM live_processed.dashboard_log WHERE match_id = %s",
+                [match_id],
+            )
+            for row in rows_to_insert:
+                cur.execute(_INSERT_DASHBOARD, row)
+        conn.commit()
     except Exception:
-        conn.execute("ROLLBACK")
+        conn.rollback()
         raise
 
     return len(rows_to_insert)
@@ -305,19 +325,20 @@ def _enrich_match(conn: duckdb.DuckDBPyConnection, match_id: int) -> int:
 
 # ── Programmatic entry point ───────────────────────────────────────────────────
 
-def enrich_match_ids(
-    match_ids: list[int],
-    conn: duckdb.DuckDBPyConnection,
-) -> int:
+def enrich_match_ids(match_ids: list[int], conn) -> int:
     """Import-and-call entry point: enrich specific match_ids without prompts.
     Returns total rows written to dashboard_log.
     """
     total = 0
     for match_id in match_ids:
-        meta_row = conn.execute("""
-            SELECT ANY_VALUE(player_a), ANY_VALUE(player_b)
-            FROM live_raw.tennisapi_points WHERE match_id = ?
-        """, [match_id]).fetchone()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT player_a, player_b
+                FROM live_raw.tennisapi_points
+                WHERE match_id = %s
+                LIMIT 1
+            """, [match_id])
+            meta_row = cur.fetchone()
         label = (
             f"{meta_row[0]} vs {meta_row[1]}" if meta_row else str(match_id)
         )
@@ -333,7 +354,7 @@ def enrich_match_ids(
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
 
-def _prompt_match_ids(conn: duckdb.DuckDBPyConnection) -> list[int]:
+def _prompt_match_ids(conn) -> list[int]:
     matches = _list_matches(conn)
     if not matches:
         print("  No matches found in live_raw.tennisapi_points.")
@@ -374,7 +395,7 @@ def main() -> None:
     print("  Enrich dashboard_log from raw tables")
     print(_sep("═"))
 
-    conn = duckdb.connect(str(_DB_PATH))
+    conn = _get_conn()
     _ensure_tables(conn)
 
     try:

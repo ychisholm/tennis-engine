@@ -63,6 +63,7 @@ class MatchWorker:
         self._poll_interval = poll_interval
         self._running       = True
         self._points_seen   = 0
+        self._last_point_processed: dict | None = None
         self._last_odds_fetch_time: float = 0.0
         self._get_odds_fn = get_odds_fn
 
@@ -114,6 +115,21 @@ class MatchWorker:
     def _poll(self) -> None:
         raw        = self._feed.get_point_by_point(self._match_id)
         all_points = self._feed.translate_to_engine_format(raw)
+
+        if self._points_seen > 0:
+            is_shrinkage = len(all_points) < self._points_seen
+            is_mutation = (
+                not is_shrinkage
+                and self._last_point_processed is not None
+                and all_points[self._points_seen - 1] != self._last_point_processed
+            )
+            if is_shrinkage or is_mutation:
+                _log.warning(
+                    "API rollback/mutation detected for %s vs %s (match %s) — "
+                    "resetting engine and replaying all %d points.",
+                    self._player_a, self._player_b, self._match_id, len(all_points),
+                )
+                self._reset_engine()
 
         if len(all_points) == self._points_seen:
             return  # no new data this cycle
@@ -175,6 +191,7 @@ class MatchWorker:
             except Exception as exc:
                 _log.warning("log_processed_state error: %s", exc)
 
+            self._last_point_processed = pt
             self._points_seen += 1
             new_points_found = True
 
@@ -245,6 +262,7 @@ class MatchWorker:
             best_of=3,
         )
         self._points_seen = 0
+        self._last_point_processed = None
 
     def stop(self) -> None:
         self._running = False

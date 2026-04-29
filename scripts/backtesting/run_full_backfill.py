@@ -7,11 +7,14 @@ single tournament day with a single set of prompts:
     Phase 2: Odds    → live_raw.oddsapi_polls
     Phase 3: Enrich  → live_processed.dashboard_log
 
+All three phases share one PostgreSQL connection opened from DATABASE_URL.
+
 Usage (from project root):
     .venv/bin/python scripts/backtesting/run_full_backfill.py
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -20,7 +23,7 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_HERE))
 
-import duckdb
+import psycopg2
 from dotenv import load_dotenv
 
 load_dotenv(_ROOT / ".env")
@@ -31,16 +34,20 @@ from backfill_today import (
     _fetch_events,
     _build_tournament_list,
     _prompt_tournament,
+    _ensure_tables as _ensure_points_table,
     fetch_matches,
     get_existing_match_ids,
     backfill_matches,
     print_summary,
-    _SETUP_STMTS,
 )
-from backfill_tournament_odds import run_odds_backfill
-from enrich_dashboard_log import enrich_match_ids, _ensure_tables
-
-_DB_PATH = _ROOT / "data" / "processed" / "tennis.duckdb"
+from backfill_tournament_odds import (
+    _ensure_tables as _ensure_odds_table,
+    run_odds_backfill,
+)
+from enrich_dashboard_log import (
+    _ensure_tables as _ensure_dashboard_table,
+    enrich_match_ids,
+)
 
 
 def _sep(char: str = "─", width: int = 70) -> str:
@@ -53,6 +60,18 @@ def _phase(label: str) -> None:
     print(f"  {label}")
     print(_sep("═"))
     print()
+
+
+def _get_conn():
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        print("  ERROR: DATABASE_URL environment variable is not set.")
+        raise SystemExit(1)
+    try:
+        return psycopg2.connect(url)
+    except psycopg2.OperationalError as exc:
+        print(f"  ERROR: Could not connect to PostgreSQL — {exc}")
+        raise SystemExit(1)
 
 
 def main() -> None:
@@ -81,12 +100,14 @@ def main() -> None:
     print(f"  Date       : {date_str}")
     print(f"  Tournament : {tournament_name}  (uid={tournament_uid})")
 
-    conn = duckdb.connect(str(_DB_PATH))
-    for stmt in _SETUP_STMTS:
-        conn.execute(stmt)
-    _ensure_tables(conn)
+    conn = _get_conn()
 
     try:
+        # Ensure all three Medallion tables exist before any phase runs.
+        _ensure_points_table(conn)
+        _ensure_odds_table(conn)
+        _ensure_dashboard_table(conn)
+
         # ── Phase 1: Point backfill ───────────────────────────────────────────
         _phase("PHASE 1: Point Backfill")
 
@@ -102,17 +123,27 @@ def main() -> None:
         summaries = backfill_matches(matches, conn)
         print_summary(summaries)
 
-        backfilled_ids = [
+        # Include both freshly backfilled and already-complete matches so
+        # Phase 3 enriches everything touched in this run.
+        ids_to_enrich = [
+            s["id"]
+            for s in summaries
+            if s["error"] is None
+        ]
+
+        if not ids_to_enrich:
+            print("  No matches available to enrich — aborting.")
+            return
+
+        newly_backfilled = [
             s["id"]
             for s in summaries
             if s["error"] is None and not s.get("skipped")
         ]
 
-        if not backfilled_ids:
-            print("  No new points were written — odds and enrichment skipped.")
-            return
-
-        print(f"  Match IDs to enrich: {backfilled_ids}")
+        print(f"  Matches to enrich : {ids_to_enrich}")
+        if newly_backfilled:
+            print(f"  Newly backfilled  : {newly_backfilled}")
 
         # ── Phase 2: Odds backfill ────────────────────────────────────────────
         _phase("PHASE 2: Odds Backfill")
@@ -121,18 +152,19 @@ def main() -> None:
             run_odds_backfill(tour, date_str, tournament_uid, tournament_name, conn)
         except RuntimeError as exc:
             print(f"  ✗  Odds backfill skipped: {exc}")
-            print("  Continuing to enrichment with whatever odds data exists...")
+            print("     Continuing to enrichment with whatever odds data exists...")
 
         # ── Phase 3: Dashboard enrichment ─────────────────────────────────────
         _phase("PHASE 3: Dashboard Enrichment")
 
-        total_rows = enrich_match_ids(backfilled_ids, conn)
+        total_rows = enrich_match_ids(ids_to_enrich, conn)
 
         # ── Summary ───────────────────────────────────────────────────────────
         print()
         print(_sep("═"))
         print("  Full backfill complete.")
-        print(f"  Matches backfilled  : {len(backfilled_ids)}")
+        print(f"  Matches processed   : {len(ids_to_enrich)}")
+        print(f"  Newly backfilled    : {len(newly_backfilled)}")
         print(f"  Dashboard rows      : {total_rows}")
         print(_sep("═"))
 

@@ -23,15 +23,13 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))
 
-import duckdb
+import psycopg2
 import requests
 from dotenv import load_dotenv
 
 load_dotenv(_ROOT / ".env")
 
 from src.live.odds_fetcher import TOURNAMENT_MAP, _TENNIS_SPORT_KEYS, _compute_consensus
-
-_DB_PATH = _ROOT / "data" / "processed" / "tennis.duckdb"
 
 # ── TennisAPI config ──────────────────────────────────────────────────────────
 _TENNIS_BASE    = "https://tennisapi1.p.rapidapi.com"
@@ -55,6 +53,32 @@ _REQUEST_SLEEP    = 2.0
 
 def _sep(char: str = "─", width: int = 70) -> str:
     return char * width
+
+
+# ── DB connection ─────────────────────────────────────────────────────────────
+
+def _get_conn():
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise RuntimeError("DATABASE_URL environment variable is not set.")
+    return psycopg2.connect(url)
+
+
+def _ensure_tables(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute("CREATE SCHEMA IF NOT EXISTS live_raw")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS live_raw.oddsapi_polls (
+                ts                    TIMESTAMPTZ,
+                match_id              INTEGER,
+                player_a              VARCHAR,
+                player_b              VARCHAR,
+                bookmaker_prob_a      FLOAT,
+                num_bookmakers        INTEGER,
+                api_credits_remaining INTEGER
+            )
+        """)
+    conn.commit()
 
 
 # ── TennisAPI HTTP helper ─────────────────────────────────────────────────────
@@ -222,7 +246,7 @@ def _parse_api_ts(api_ts_str: str | None, fallback: datetime) -> datetime:
 # ── Snapshot generation ───────────────────────────────────────────────────────
 
 def _generate_snapshots(start: datetime, end: datetime) -> list[datetime]:
-    """Return UTC datetimes at _STEP_MINUTES intervals from start through end (inclusive)."""
+    """Return UTC datetimes at _STEP_MINUTES intervals from start through end."""
     step  = timedelta(minutes=_STEP_MINUTES)
     snaps: list[datetime] = []
     t = start
@@ -232,22 +256,20 @@ def _generate_snapshots(start: datetime, end: datetime) -> list[datetime]:
     return snaps
 
 
-def _compute_window_from_db(
-    match_ids: list[int],
-    conn: duckdb.DuckDBPyConnection,
-) -> tuple[datetime, datetime]:
-    """Derive the odds-sweep window from actual point timestamps in the DB.
+def _compute_window_from_db(match_ids: list[int], conn) -> tuple[datetime, datetime]:
+    """Derive the odds-sweep window from actual point timestamps already in the DB.
 
-    Uses MIN(ts) of the earliest synthetic point and MAX(ts) + 10 min of the
-    latest.  Points must already be written by backfill_today before calling.
-    Returns tz-naive UTC datetimes (matching what DuckDB stores).
+    Only fetches snapshots during the period when matches were actually in
+    progress, so we don't waste API credits on irrelevant time windows.
     """
-    placeholders = ", ".join("?" * len(match_ids))
-    bounds = conn.execute(
-        f"SELECT MIN(ts), MAX(ts) FROM live_raw.tennisapi_points"
-        f" WHERE match_id IN ({placeholders})",
-        match_ids,
-    ).fetchone()
+    placeholders = ", ".join(["%s"] * len(match_ids))
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT MIN(ts), MAX(ts) FROM live_raw.tennisapi_points"
+            f" WHERE match_id IN ({placeholders})",
+            match_ids,
+        )
+        bounds = cur.fetchone()
 
     if not bounds or bounds[0] is None:
         raise RuntimeError(
@@ -255,8 +277,15 @@ def _compute_window_from_db(
             "Run point backfill first."
         )
 
-    start_time = bounds[0]                          # tz-naive UTC
-    end_time   = bounds[1] + timedelta(minutes=10)  # 10-min buffer after last point
+    start_time = bounds[0]
+    if start_time.tzinfo is None:
+        start_time = start_time.replace(tzinfo=timezone.utc)
+
+    end_time = bounds[1]
+    if end_time.tzinfo is None:
+        end_time = end_time.replace(tzinfo=timezone.utc)
+    end_time = end_time + timedelta(minutes=10)
+
     return start_time, end_time
 
 
@@ -268,32 +297,16 @@ def _clean(v: object) -> object:
     return v
 
 
-def _ensure_tables(conn: duckdb.DuckDBPyConnection) -> None:
-    conn.execute("CREATE SCHEMA IF NOT EXISTS live_raw")
-    conn.execute("CREATE SCHEMA IF NOT EXISTS live_processed")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS live_raw.oddsapi_polls (
-            ts                    TIMESTAMP,
-            match_id              INTEGER,
-            player_a              VARCHAR,
-            player_b              VARCHAR,
-            bookmaker_prob_a      FLOAT,
-            num_bookmakers        INTEGER,
-            api_credits_remaining INTEGER
-        )
-    """)
-
-
 _INSERT_POLL = """
 INSERT INTO live_raw.oddsapi_polls (
     ts, match_id, player_a, player_b,
     bookmaker_prob_a, num_bookmakers, api_credits_remaining
-) VALUES (?, ?, ?, ?, ?, ?, ?)
+) VALUES (%s, %s, %s, %s, %s, %s, %s)
 """
 
 
 def _write_poll(
-    conn: duckdb.DuckDBPyConnection,
+    conn,
     ts: datetime,
     match_id: int,
     player_a: str,
@@ -302,18 +315,20 @@ def _write_poll(
     num_bookmakers: int,
     api_credits_remaining: int | None,
 ) -> None:
-    conn.execute(_INSERT_POLL, [
-        ts.replace(tzinfo=None),
-        match_id,
-        player_a,
-        player_b,
-        _clean(bookmaker_prob_a),
-        num_bookmakers,
-        api_credits_remaining,
-    ])
+    with conn.cursor() as cur:
+        cur.execute(_INSERT_POLL, [
+            ts,
+            match_id,
+            player_a,
+            player_b,
+            _clean(bookmaker_prob_a),
+            num_bookmakers,
+            api_credits_remaining,
+        ])
+    conn.commit()
 
 
-# ── Core logic (shared by standalone and orchestrated paths) ──────────────────
+# ── Core logic ────────────────────────────────────────────────────────────────
 
 def _get_target_matches(
     all_events: list[dict],
@@ -350,16 +365,18 @@ def _get_target_matches(
 
 def _resolve_db_match_ids(
     target_matches: list[dict],
-    conn: duckdb.DuckDBPyConnection,
+    conn,
 ) -> tuple[list[dict], list[dict]]:
     """Look up match_ids from tennisapi_points. Returns (db_matches, missing)."""
     for m in target_matches:
-        row = conn.execute("""
-            SELECT DISTINCT match_id FROM live_raw.tennisapi_points
-            WHERE (player_a = ? AND player_b = ?)
-               OR (player_a = ? AND player_b = ?)
-            LIMIT 1
-        """, [m["home"], m["away"], m["away"], m["home"]]).fetchone()
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT match_id FROM live_raw.tennisapi_points
+                WHERE (player_a = %s AND player_b = %s)
+                   OR (player_a = %s AND player_b = %s)
+                LIMIT 1
+            """, [m["home"], m["away"], m["away"], m["home"]])
+            row = cur.fetchone()
         m["match_id"] = row[0] if row else None
 
     db_matches = [m for m in target_matches if m["match_id"] is not None]
@@ -372,7 +389,7 @@ def _run_odds_sweep(
     sport_key: str,
     window_start: datetime,
     window_end: datetime,
-    conn: duckdb.DuckDBPyConnection,
+    conn,
     odds_api_key: str,
 ) -> int:
     """Fetch snapshots and insert poll rows. Returns total rows inserted."""
@@ -444,7 +461,7 @@ def run_odds_backfill(
     date_str: str,
     tournament_uid: int,
     tournament_name: str,
-    conn: duckdb.DuckDBPyConnection,
+    conn,
 ) -> None:
     """Import-and-call entry point for use by the full-backfill orchestrator.
 
@@ -488,8 +505,6 @@ def run_odds_backfill(
             "Use the standalone script to select the sport_key manually."
         )
 
-    # Derive window from actual point timestamps already in the DB so it
-    # matches only the period when matches were in progress.
     match_id_list = [m["match_id"] for m in db_matches]
     window_start, window_end = _compute_window_from_db(match_id_list, conn)
 
@@ -555,7 +570,7 @@ def main() -> None:
         print(f"    {m['home']} vs {m['away']}")
 
     # ── Step D: Resolve match_ids from DB ────────────────────────────────────
-    conn = duckdb.connect(str(_DB_PATH))
+    conn = _get_conn()
     _ensure_tables(conn)
 
     try:
@@ -574,8 +589,6 @@ def main() -> None:
         for m in db_matches:
             print(f"    [{m['match_id']}] {m['home']} vs {m['away']}")
 
-        # Derive window from actual point timestamps so we only pull snapshots
-        # during the period matches were in progress.
         match_id_list = [m["match_id"] for m in db_matches]
         window_start, window_end = _compute_window_from_db(match_id_list, conn)
         print(

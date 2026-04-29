@@ -1,20 +1,19 @@
 from __future__ import annotations
 
 import math
+import os
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-import duckdb
-
-_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "processed" / "tennis.duckdb"
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 _SETUP_STMTS = [
     "CREATE SCHEMA IF NOT EXISTS live_raw",
     "CREATE SCHEMA IF NOT EXISTS live_processed",
     """
     CREATE TABLE IF NOT EXISTS live_raw.tennisapi_points (
-        ts               TIMESTAMP,
+        ts               TIMESTAMPTZ,
         match_id         INTEGER,
         player_a         VARCHAR,
         player_b         VARCHAR,
@@ -34,7 +33,7 @@ _SETUP_STMTS = [
     """,
     """
     CREATE TABLE IF NOT EXISTS live_raw.oddsapi_polls (
-        ts                    TIMESTAMP,
+        ts                    TIMESTAMPTZ,
         match_id              INTEGER,
         player_a              VARCHAR,
         player_b              VARCHAR,
@@ -45,7 +44,7 @@ _SETUP_STMTS = [
     """,
     """
     CREATE TABLE IF NOT EXISTS live_processed.dashboard_log (
-        ts               TIMESTAMP,
+        ts               TIMESTAMPTZ,
         match_id         INTEGER,
         player_a         VARCHAR,
         player_b         VARCHAR,
@@ -90,14 +89,14 @@ INSERT INTO live_raw.tennisapi_points (
     point_num, set_num, game_num,
     home_point, away_point, server, point_winner, is_ace, is_double_fault,
     ingestion_source, tournament_name, category
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 _INSERT_RAW_ODDS = """
 INSERT INTO live_raw.oddsapi_polls (
     ts, match_id, player_a, player_b,
     bookmaker_prob_a, num_bookmakers, api_credits_remaining
-) VALUES (?, ?, ?, ?, ?, ?, ?)
+) VALUES (%s, %s, %s, %s, %s, %s, %s)
 """
 
 _INSERT_DASHBOARD = """
@@ -111,20 +110,20 @@ INSERT INTO live_processed.dashboard_log (
     sets_a, sets_b, games_a, games_b,
     ingestion_source, tournament_name, category
 ) VALUES (
-    ?, ?, ?, ?,
-    ?, ?, ?,
-    ?, ?, ?, ?, ?, ?,
-    ?, ?, ?,
-    ?, ?,
-    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-    ?, ?, ?, ?,
-    ?, ?, ?
+    %s, %s, %s, %s,
+    %s, %s, %s,
+    %s, %s, %s, %s, %s, %s,
+    %s, %s, %s,
+    %s, %s,
+    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+    %s, %s, %s, %s,
+    %s, %s, %s
 )
 """
 
 
 def _clean(v: Any) -> Any:
-    """Convert NaN/inf to None so DuckDB stores NULL."""
+    """Convert NaN/inf to None so Postgres stores NULL."""
     if isinstance(v, float) and not math.isfinite(v):
         return None
     return v
@@ -132,43 +131,25 @@ def _clean(v: Any) -> Any:
 
 class MatchLogger:
     """
-    Writes live data into the Medallion-style DuckDB schemas:
+    Writes live data into the Medallion-style PostgreSQL schemas:
       live_raw.tennisapi_points  — immutable API payload ledger
       live_raw.oddsapi_polls     — immutable bookmaker poll ledger
       live_processed.dashboard_log — merged view for the dashboard
     """
 
-    _LOCK_RETRY_DELAY = 3.0
-    _LOCK_MAX_RETRIES = 20  # 60s total wait
-
-    def __init__(self, db_path: str | Path | None = None) -> None:
-        import time
-        self._path = str(db_path or _DB_PATH)
-        self._conn = self._open_conn()
+    def __init__(self, db_url: str | None = None) -> None:
+        url = db_url or os.getenv("DATABASE_URL")
+        if not url:
+            raise RuntimeError(
+                "DATABASE_URL environment variable is not set."
+            )
+        self._conn = psycopg2.connect(url)
+        self._conn.autocommit = False
+        cur = self._conn.cursor()
         for stmt in _SETUP_STMTS:
-            self._conn.execute(stmt)
-
-    def _open_conn(self) -> duckdb.DuckDBPyConnection:
-        import time
-        for attempt in range(self._LOCK_MAX_RETRIES):
-            try:
-                return duckdb.connect(self._path)
-            except duckdb.IOException as exc:
-                if "Conflicting lock" not in str(exc):
-                    raise
-                if attempt == 0:
-                    print(
-                        "\n[logger] DuckDB is locked by another process "
-                        "(TablePlus or another terminal).\n"
-                        "         Close that connection — this will auto-resume.\n"
-                    )
-                print(f"         Waiting... ({attempt + 1}/{self._LOCK_MAX_RETRIES})", end="\r", flush=True)
-                time.sleep(self._LOCK_RETRY_DELAY)
-        raise RuntimeError(
-            f"Could not acquire DuckDB lock after "
-            f"{self._LOCK_MAX_RETRIES * self._LOCK_RETRY_DELAY:.0f}s. "
-            "Close TablePlus or any other process with the DB open."
-        )
+            cur.execute(stmt)
+        self._conn.commit()
+        cur.close()
 
     # ------------------------------------------------------------------
     # Public API
@@ -187,8 +168,9 @@ class MatchLogger:
     ) -> None:
         # Accept both live-feed keys (set_number/game_number/home_point_score)
         # and backfill keys (set_num/game_num/home_point).
-        self._conn.execute(_INSERT_RAW_POINT, [
-            datetime.now(timezone.utc).replace(tzinfo=None),
+        cur = self._conn.cursor()
+        cur.execute(_INSERT_RAW_POINT, [
+            datetime.now(timezone.utc),
             int(match_id),
             player_a,
             player_b,
@@ -205,6 +187,8 @@ class MatchLogger:
             tournament_name,
             category,
         ])
+        self._conn.commit()
+        cur.close()
 
     def log_raw_odds(
         self,
@@ -213,8 +197,9 @@ class MatchLogger:
         player_b: str,
         odds_result: dict,
     ) -> None:
-        self._conn.execute(_INSERT_RAW_ODDS, [
-            datetime.now(timezone.utc).replace(tzinfo=None),
+        cur = self._conn.cursor()
+        cur.execute(_INSERT_RAW_ODDS, [
+            datetime.now(timezone.utc),
             int(match_id),
             player_a,
             player_b,
@@ -222,6 +207,8 @@ class MatchLogger:
             odds_result.get("num_bookmakers"),
             odds_result.get("api_credits_remaining"),
         ])
+        self._conn.commit()
+        cur.close()
 
     def log_processed_state(
         self,
@@ -250,8 +237,9 @@ class MatchLogger:
             else None
         )
 
-        self._conn.execute(_INSERT_DASHBOARD, [
-            datetime.now(timezone.utc).replace(tzinfo=None),
+        cur = self._conn.cursor()
+        cur.execute(_INSERT_DASHBOARD, [
+            datetime.now(timezone.utc),
             int(match_id),
             player_a,
             player_b,
@@ -287,6 +275,8 @@ class MatchLogger:
             tournament_name,
             category,
         ])
+        self._conn.commit()
+        cur.close()
 
     def close(self) -> None:
         self._conn.close()

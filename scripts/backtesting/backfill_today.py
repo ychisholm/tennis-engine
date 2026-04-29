@@ -6,12 +6,12 @@ live_raw.tennisapi_points via interactive prompts.
 Usage (from project root):
     .venv/bin/python scripts/backtesting/backfill_today.py
 
-The game_num / set_num derivation here uses the same fixed algorithm that was
-applied retroactively to the DB:
-  - set_num  : increments when a tiebreak game ends and the next point is regular
+The game_num / set_num derivation uses a fixed algorithm:
   - game_num : increments when the first regular-game score is 15-0 or 0-15;
                tiebreaks are always labeled game 13
-This is more robust than trusting the API's own counters.
+  - set_num  : trusts the API's outer set-level grouping
+
+Timestamps are synthetic: 45 s per point starting from the match startTimestamp.
 """
 from __future__ import annotations
 
@@ -20,20 +20,19 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import duckdb
+import psycopg2
 import requests
 from dotenv import load_dotenv
 
 # ── Paths & config ─────────────────────────────────────────────────────────────
-_ROOT     = Path(__file__).resolve().parents[2]
+_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(_ROOT / ".env")
 
-_DB_PATH    = _ROOT / "data" / "processed" / "tennis.duckdb"
-_BASE_URL   = "https://tennisapi1.p.rapidapi.com"
-_API_KEY    = os.environ["RAPIDAPI_KEY"]
-_HEADERS    = {
+_BASE_URL  = "https://tennisapi1.p.rapidapi.com"
+_API_KEY   = os.environ["RAPIDAPI_KEY"]
+_HEADERS   = {
     "x-rapidapi-host": "tennisapi1.p.rapidapi.com",
-    "x-rapidapi-key": _API_KEY,
+    "x-rapidapi-key":  _API_KEY,
 }
 
 _MAX_RETRIES = 3
@@ -43,7 +42,44 @@ _RETRY_DELAY  = 1.0
 _STD_SCORES = {"0", "15", "30", "40", "A", "AD"}
 
 
+# ── DB connection ──────────────────────────────────────────────────────────────
+
+def _get_conn():
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise RuntimeError("DATABASE_URL environment variable is not set.")
+    return psycopg2.connect(url)
+
+
+def _ensure_tables(conn) -> None:
+    """Create live_raw schema and tennisapi_points table if they don't exist."""
+    with conn.cursor() as cur:
+        cur.execute("CREATE SCHEMA IF NOT EXISTS live_raw")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS live_raw.tennisapi_points (
+                ts               TIMESTAMPTZ,
+                match_id         INTEGER,
+                player_a         VARCHAR,
+                player_b         VARCHAR,
+                point_num        INTEGER,
+                set_num          INTEGER,
+                game_num         INTEGER,
+                home_point       VARCHAR,
+                away_point       VARCHAR,
+                server           VARCHAR,
+                point_winner     VARCHAR,
+                is_ace           BOOLEAN,
+                is_double_fault  BOOLEAN,
+                ingestion_source VARCHAR,
+                tournament_name  VARCHAR,
+                category         VARCHAR
+            )
+        """)
+    conn.commit()
+
+
 # ── HTTP helper ────────────────────────────────────────────────────────────────
+
 def _get(path: str) -> dict | list:
     url = f"{_BASE_URL}{path}"
     last_exc: Exception = RuntimeError("no attempts made")
@@ -61,6 +97,7 @@ def _get(path: str) -> dict | list:
 
 
 # ── Fixed game / set derivation ────────────────────────────────────────────────
+
 def _is_tb(hp: str, ap: str) -> bool:
     return hp not in _STD_SCORES or ap not in _STD_SCORES
 
@@ -71,17 +108,13 @@ def derive_points(raw_response: dict) -> list[dict]:
 
     set_num strategy
     ----------------
-    Trust the API's top-level nested structure (`pointByPoint[i].set`).  The
-    API organises its nested array correctly by set — the bug we fixed for
-    match 16042676 was that individual point rows had the wrong `set_num`
-    field, but the outer set-level grouping was fine.
+    Trust the API's top-level nested structure (pointByPoint[i].set).
 
-    game_num strategy  (same fixed algorithm as the retroactive DB fix)
+    game_num strategy  (same fixed algorithm as tennis_feed.translate_to_engine_format)
     ------------------
     Within each set, local_game_num starts at 1 and increments whenever the
-    current point's score is "15–0" or "0–15" — unambiguously the first point
-    of a new game.  (The first point of each set is exempt so we don't
-    double-count game 1.)  Tiebreak games are always labelled game 13.
+    current point's score is "15–0" or "0–15".  Tiebreak games are always
+    labelled game 13.
     """
     sets_sorted = sorted(
         raw_response.get("pointByPoint", []),
@@ -138,80 +171,6 @@ def derive_points(raw_response: dict) -> list[dict]:
 
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
-_SETUP_STMTS = [
-    "CREATE SCHEMA IF NOT EXISTS live_raw",
-    "CREATE SCHEMA IF NOT EXISTS live_processed",
-    """
-    CREATE TABLE IF NOT EXISTS live_raw.tennisapi_points (
-        ts               TIMESTAMP,
-        match_id         INTEGER,
-        player_a         VARCHAR,
-        player_b         VARCHAR,
-        point_num        INTEGER,
-        set_num          INTEGER,
-        game_num         INTEGER,
-        home_point       VARCHAR,
-        away_point       VARCHAR,
-        server           VARCHAR,
-        point_winner     VARCHAR,
-        is_ace           BOOLEAN,
-        is_double_fault  BOOLEAN,
-        ingestion_source VARCHAR,
-        tournament_name  VARCHAR,
-        category         VARCHAR
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS live_raw.oddsapi_polls (
-        ts                    TIMESTAMP,
-        match_id              INTEGER,
-        player_a              VARCHAR,
-        player_b              VARCHAR,
-        bookmaker_prob_a      FLOAT,
-        num_bookmakers        INTEGER,
-        api_credits_remaining INTEGER
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS live_processed.dashboard_log (
-        ts               TIMESTAMP,
-        match_id         INTEGER,
-        player_a         VARCHAR,
-        player_b         VARCHAR,
-        set_num          INTEGER,
-        game_num         INTEGER,
-        point_num        INTEGER,
-        home_point       VARCHAR,
-        away_point       VARCHAR,
-        server           VARCHAR,
-        point_winner     VARCHAR,
-        is_ace           BOOLEAN,
-        is_double_fault  BOOLEAN,
-        model_prob_a     FLOAT,
-        bookmaker_prob_a FLOAT,
-        edge             FLOAT,
-        d_a              FLOAT,
-        d_b              FLOAT,
-        nmi_a            FLOAT,
-        nmi_b            FLOAT,
-        sms_a            FLOAT,
-        sms_b            FLOAT,
-        rms_a            FLOAT,
-        rms_b            FLOAT,
-        pms_a            FLOAT,
-        pms_b            FLOAT,
-        gps_a            FLOAT,
-        gps_b            FLOAT,
-        sets_a           INTEGER,
-        sets_b           INTEGER,
-        games_a          INTEGER,
-        games_b          INTEGER,
-        ingestion_source VARCHAR,
-        tournament_name  VARCHAR,
-        category         VARCHAR
-    )
-    """,
-]
 
 _INSERT_RAW_POINT = """
 INSERT INTO live_raw.tennisapi_points (
@@ -219,20 +178,22 @@ INSERT INTO live_raw.tennisapi_points (
     point_num, set_num, game_num,
     home_point, away_point, server, point_winner, is_ace, is_double_fault,
     ingestion_source
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 
-def get_existing_match_ids(conn: duckdb.DuckDBPyConnection) -> dict[int, int]:
+def get_existing_match_ids(conn) -> dict[int, int]:
     """Return a mapping of match_id → point count in live_raw.tennisapi_points."""
-    rows = conn.execute(
-        "SELECT match_id, COUNT(*) FROM live_raw.tennisapi_points GROUP BY match_id"
-    ).fetchall()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT match_id, COUNT(*) FROM live_raw.tennisapi_points GROUP BY match_id"
+        )
+        rows = cur.fetchall()
     return {r[0]: r[1] for r in rows}
 
 
 def write_points(
-    conn: duckdb.DuckDBPyConnection,
+    conn,
     match_id: int,
     player_a: str,
     player_b: str,
@@ -241,19 +202,22 @@ def write_points(
 ) -> None:
     """Write point rows with synthetic timestamps spaced 45 s apart from start_ts."""
     base_dt = datetime.fromtimestamp(start_ts, timezone.utc)
-    for i, pt in enumerate(points):
-        ts = (base_dt + timedelta(seconds=i * 45)).replace(tzinfo=None)
-        conn.execute(_INSERT_RAW_POINT, [
-            ts, match_id, player_a, player_b,
-            i, pt["set_num"], pt["game_num"],
-            pt["home_point"], pt["away_point"],
-            pt["server"], pt["point_winner"],
-            pt["is_ace"], pt["is_double_fault"],
-            "backfill",
-        ])
+    with conn.cursor() as cur:
+        for i, pt in enumerate(points):
+            ts = base_dt + timedelta(seconds=i * 45)
+            cur.execute(_INSERT_RAW_POINT, [
+                ts, match_id, player_a, player_b,
+                i, pt["set_num"], pt["game_num"],
+                pt["home_point"], pt["away_point"],
+                pt["server"], pt["point_winner"],
+                pt["is_ace"], pt["is_double_fault"],
+                "backfill",
+            ])
+    conn.commit()
 
 
 # ── Formatting helpers ─────────────────────────────────────────────────────────
+
 def _sep(char: str = "─", width: int = 70) -> str:
     return char * width
 
@@ -383,7 +347,7 @@ def _filter_finished_singles(
     return matches
 
 
-# ── Step A: Discover today's completed ATP/WTA singles matches ─────────────────
+# ── Step A: Discover completed ATP/WTA singles matches ─────────────────────────
 
 def fetch_todays_matches() -> list[dict]:
     """Interactive: prompt for tour/date/tournament, return finished singles."""
@@ -441,12 +405,15 @@ def fetch_matches(
 
 
 # ── Step B: Annotate matches with DB state ─────────────────────────────────────
-def filter_new_matches(
-    matches: list[dict],
-    conn: duckdb.DuckDBPyConnection,
-) -> list[dict]:
+
+def filter_new_matches(matches: list[dict], conn) -> list[dict]:
     """Annotate each match with its current DB point count (_db_count).
-    Returns all matches so backfill_matches can decide what to do with each.
+
+    If the DB already has a partial backfill for a match (db_count > 0 but
+    less than the API will return), the stale rows are deleted here so
+    backfill_matches can write a clean set.  We can't know the API count
+    until we fetch, so deletion for incomplete matches is deferred to
+    backfill_matches — this step just flags them.
     """
     print(_sep("═"))
     print("  STEP B — Checking which matches are already in the database")
@@ -477,16 +444,16 @@ def filter_new_matches(
 
 
 # ── Step C: Backfill each match ────────────────────────────────────────────────
-def backfill_matches(
-    matches: list[dict],
-    conn: duckdb.DuckDBPyConnection,
-) -> list[dict]:
+
+def backfill_matches(matches: list[dict], conn) -> list[dict]:
     """Fetch point-by-point data and write to DB.
 
     For each match:
-    - If not in DB: write it.
-    - If in DB and API count > DB count: delete from all three tables, re-backfill.
-    - If in DB and API count <= DB count: skip (already complete).
+    - If not in DB → write it.
+    - If DB count < API count → delete all rows for the match_id across
+      live_raw.tennisapi_points, live_raw.oddsapi_polls, and
+      live_processed.dashboard_log, then re-backfill.
+    - If DB count >= API count → already complete, skip.
     """
     print(_sep("═"))
     print("  STEP C — Backfilling point-by-point data")
@@ -517,11 +484,13 @@ def backfill_matches(
                                "points": 0, "gps": {}, "error": "empty"})
             continue
 
+        api_count = len(points)
+
         if db_count > 0:
-            if len(points) <= db_count:
+            if api_count <= db_count:
                 print(
                     f"    ✓  Already complete "
-                    f"({db_count} pts in DB, {len(points)} from API) — skipping."
+                    f"({db_count} pts in DB, {api_count} from API) — skipping."
                 )
                 summaries.append({
                     "id":      mid,
@@ -534,31 +503,24 @@ def backfill_matches(
                 })
                 continue
 
+            # DB count < API count → incomplete, delete and re-backfill.
             print(
                 f"    ⚠  Incomplete in DB ({db_count} pts) vs "
-                f"API ({len(points)} pts) — re-backfilling."
+                f"API ({api_count} pts) — re-backfilling."
             )
-            conn.execute(
-                "DELETE FROM live_raw.tennisapi_points WHERE match_id = ?", [mid]
-            )
-            conn.execute(
-                "DELETE FROM live_raw.oddsapi_polls WHERE match_id = ?", [mid]
-            )
-            conn.execute(
-                "DELETE FROM live_processed.dashboard_log WHERE match_id = ?", [mid]
-            )
+            _delete_match_rows(conn, mid)
 
         write_points(conn, mid, home, away, points, start_ts)
 
         gps = _games_per_set(points)
         gps_str = "  ".join(f"S{s}: {g}g" for s, g in gps.items())
-        print(f"    ✓  {len(points)} points written  |  {gps_str}")
+        print(f"    ✓  {api_count} points written  |  {gps_str}")
 
         summaries.append({
             "id":     mid,
             "home":   home,
             "away":   away,
-            "points": len(points),
+            "points": api_count,
             "gps":    gps,
             "error":  None,
         })
@@ -569,13 +531,34 @@ def backfill_matches(
     return summaries
 
 
+def _delete_match_rows(conn, match_id: int) -> None:
+    """Delete all rows for match_id from all three Medallion tables.
+
+    Each table is deleted in its own try/except so a missing table
+    (e.g. on a fresh DB) doesn't abort the whole operation.
+    """
+    tables = (
+        "live_raw.tennisapi_points",
+        "live_raw.oddsapi_polls",
+        "live_processed.dashboard_log",
+    )
+    for tbl in tables:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(f"DELETE FROM {tbl} WHERE match_id = %s", [match_id])
+            conn.commit()
+        except psycopg2.Error:
+            conn.rollback()
+
+
 # ── Programmatic entry point ───────────────────────────────────────────────────
+
 def run_backfill(
     tour: str,
     date_str: str,
     tournament_uid: int,
     tournament_name: str,
-    conn: duckdb.DuckDBPyConnection,
+    conn,
 ) -> list[dict]:
     """Import-and-call entry point for use by the full-backfill orchestrator."""
     matches = fetch_matches(tour, date_str, tournament_uid, tournament_name)
@@ -590,7 +573,8 @@ def run_backfill(
     return backfill_matches(matches, conn)
 
 
-# ── Step D: Validation summary ────────────────────────────────────────────────
+# ── Step D: Validation summary ─────────────────────────────────────────────────
+
 def print_summary(summaries: list[dict]) -> None:
     print(_sep("═"))
     print("  STEP D — Final validation summary")
@@ -635,11 +619,10 @@ def print_summary(summaries: list[dict]) -> None:
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
-def main() -> None:
-    conn = duckdb.connect(str(_DB_PATH))
 
-    for stmt in _SETUP_STMTS:
-        conn.execute(stmt)
+def main() -> None:
+    conn = _get_conn()
+    _ensure_tables(conn)
 
     try:
         matches = fetch_todays_matches()

@@ -148,6 +148,10 @@ def _make_worker(get_odds_fn):
         "tournament": {"uniqueTournament": {"id": w._tournament_id}},
     }
     w._last_odds_fetch_time = 0.0
+    w._last_point_processed = None
+    w._points_seen = 0
+    w._tournament_name = "Test Open"
+    w._category = "atp"
     w._get_odds_fn = get_odds_fn
     w._logger = MagicMock()
     return w
@@ -185,7 +189,6 @@ def test_odds_trigger_skipped_when_under_300s_since_last_fetch():
 
     get_odds.assert_not_called()
     w._logger.log_raw_odds.assert_not_called()
-    # Timestamp must be unchanged.
     assert w._last_odds_fetch_time == last
 
 
@@ -215,3 +218,93 @@ def test_odds_trigger_does_not_fire_when_no_new_points():
 
     get_odds.assert_not_called()
     w._logger.log_raw_odds.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Fingerprint mutation detection
+# ---------------------------------------------------------------------------
+
+def _make_points(n: int) -> list[dict]:
+    return [
+        {
+            "server": "home", "home_point_score": "0", "away_point_score": "0",
+            "point_winner": "home", "is_ace": False, "is_double_fault": False,
+            "game_number": 1, "set_number": 1, "idx": i,
+        }
+        for i in range(n)
+    ]
+
+
+def test_mutation_shrinkage_resets_engine():
+    """When API returns fewer points than _points_seen, engine must be reset."""
+    from src.live.collector import MatchWorker
+
+    w = _make_worker(MagicMock(return_value=None))
+    original_points = _make_points(5)
+    w._points_seen = 5
+    w._last_point_processed = original_points[4]
+
+    feed = MagicMock()
+    feed.get_point_by_point.return_value = {}
+    feed.translate_to_engine_format.return_value = _make_points(3)
+    w._feed = feed
+    w._engine = MagicMock()
+    w._engine._match_over = False
+
+    MatchWorker._poll(w)
+
+    # After reset, the same poll cycle replays the 3 returned points.
+    assert w._points_seen == 3
+
+
+def test_mutation_changed_history_resets_engine():
+    """When the last-seen point no longer matches all_points[_points_seen-1], engine must reset."""
+    from src.live.collector import MatchWorker
+
+    w = _make_worker(MagicMock(return_value=None))
+    original_last = {
+        "server": "home", "home_point_score": "15", "away_point_score": "0",
+        "point_winner": "home", "is_ace": False, "is_double_fault": False,
+        "game_number": 1, "set_number": 1, "idx": 4,
+    }
+    w._points_seen = 5
+    w._last_point_processed = original_last
+
+    mutated_points = _make_points(6)
+    mutated_points[4] = {**original_last, "point_winner": "away"}
+
+    feed = MagicMock()
+    feed.get_point_by_point.return_value = {}
+    feed.translate_to_engine_format.return_value = mutated_points
+    w._feed = feed
+    w._engine = MagicMock()
+    w._engine._match_over = False
+
+    MatchWorker._poll(w)
+
+    # After reset, the same poll cycle replays all 6 returned points.
+    assert w._points_seen == 6
+
+
+def test_stable_history_does_not_reset_engine():
+    """When history is unchanged, no reset should occur and points_seen advances."""
+    from src.live.collector import MatchWorker
+
+    w = _make_worker(MagicMock(return_value=None))
+    stable_points = _make_points(5)
+    w._points_seen = 5
+    w._last_point_processed = stable_points[4]
+
+    extended_points = _make_points(6)
+    extended_points[:5] = stable_points
+
+    feed = MagicMock()
+    feed.get_point_by_point.return_value = {}
+    feed.translate_to_engine_format.return_value = extended_points
+    w._feed = feed
+    w._engine = MagicMock()
+    w._engine._match_over = False
+
+    MatchWorker._poll(w)
+
+    assert w._points_seen == 6
