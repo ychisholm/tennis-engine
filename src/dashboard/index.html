@@ -439,32 +439,38 @@ function groupByGame(points) {
   return [...map.values()].sort((a,b) => a.set !== b.set ? a.set-b.set : a.game-b.game);
 }
 
-function computeScores(pts) {
-  const out = [];
-  let sA=0, sB=0, gA=0, gB=0;
-  let completedSets = [];
-  for (let i = 0; i < pts.length; i++) {
-    const prev = pts[i-1], cur = pts[i];
-    if (prev) {
-      const setChg     = cur.set_num > prev.set_num;
-      const gameNumChg = cur.game_num !== prev.game_num;
-      if (setChg || gameNumChg) {
-        const w = inferGameWinner(
-          prev.home_point, prev.away_point, prev.point_winner, true
-        );
-        if (w === 'home') gA++;
-        else if (w === 'away') gB++;
-        if (setChg) {
-          completedSets = [...completedSets, { h: gA, a: gB }];
-          if (gA > gB) sA++; else sB++;
-          gA = 0; gB = 0;
-        }
-      }
-    }
-    out.push({ setsA:sA, setsB:sB, gamesA:gA, gamesB:gB,
-               completedSets:[...completedSets] });
+// Read the cumulative scoreboard directly from the pre-computed columns on
+// the latest visible point. completedSets is rebuilt by taking each
+// non-current set's last point's game counts (per-set counters reset on
+// set boundaries in live_processed.points).
+function deriveScoreFromColumns(pts) {
+  if (!pts.length) return null;
+  const latest = pts[pts.length - 1];
+  const latestSet = latest.set_num;
+
+  const lastBySet = new Map();
+  for (const pt of pts) {
+    if (pt.set_num != null) lastBySet.set(pt.set_num, pt);
   }
-  return out;
+
+  const completedSets = [];
+  const sortedSets = [...lastBySet.keys()].sort((a, b) => a - b);
+  for (const s of sortedSets) {
+    if (s === latestSet) continue;
+    const p = lastBySet.get(s);
+    completedSets.push({
+      h: p.home_games_won ?? 0,
+      a: p.away_games_won ?? 0,
+    });
+  }
+
+  return {
+    setsA:  latest.home_sets_won  ?? 0,
+    setsB:  latest.away_sets_won  ?? 0,
+    gamesA: latest.home_games_won ?? 0,
+    gamesB: latest.away_games_won ?? 0,
+    completedSets,
+  };
 }
 
 const STD      = new Set(['0','15','30','40','A','AD']);
@@ -890,9 +896,12 @@ function HeroCard({ match, latest, sc, viewPlayer, setViewPlayer, isScrubbing, i
 
   const playerA = match.player_a ?? 'Home (A)';
   const playerB = match.player_b ?? 'Away (B)';
+  // Pre-computed columns from live_processed.points (via deriveScoreFromColumns
+  // → sc) are authoritative. Fall back to direct reads on `latest` for the
+  // /live_matches list payload, which delivers the same column names.
   const completedSets = sc?.completedSets ?? [];
-  const gamesA = sc?.gamesA ?? latest?.home_games_won ?? latest?.games_a ?? 0;
-  const gamesB = sc?.gamesB ?? latest?.away_games_won ?? latest?.games_b ?? 0;
+  const gamesA = sc?.gamesA ?? latest?.home_games_won ?? 0;
+  const gamesB = sc?.gamesB ?? latest?.away_games_won ?? 0;
   const numSets = completedSets.length + (isFinal ? 0 : 1);
   const setHeaders = Array.from({length: numSets}, (_, i) =>
     i < completedSets.length ? `S${i+1}` : `S${i+1}*`
@@ -1339,8 +1348,7 @@ function MatchDetail({ match, onBack }) {
   const latest      = visible[visible.length-1] ?? null;
   const playerA     = `${countryFlag(match.country_a) ? countryFlag(match.country_a) + ' ' : ''}${match.player_a ?? 'Home (A)'}`;
   const playerB     = `${countryFlag(match.country_b) ? countryFlag(match.country_b) + ' ' : ''}${match.player_b ?? 'Away (B)'}`;
-  const liveScores  = useMemo(() => computeScores(allPoints), [allPoints]);
-  const latestScore = visible.length > 0 ? liveScores[visible.length - 1] : null;
+  const latestScore = useMemo(() => deriveScoreFromColumns(visible), [visible]);
 
   return (
     <div className="dashboard-wrap">
