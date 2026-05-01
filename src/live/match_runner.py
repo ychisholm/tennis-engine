@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import concurrent.futures
-import os
 import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -9,8 +7,6 @@ from typing import TYPE_CHECKING, Any
 from dotenv import load_dotenv
 
 from src.live.tennis_feed import TennisFeed
-from src.live.odds_feed import OddsFeed
-from src.live.odds_fetcher import get_match_odds
 from src.engine.live_match import LiveMatch
 
 if TYPE_CHECKING:
@@ -63,7 +59,6 @@ class MatchRunner:
         self._best_of = best_of
         self._tournament_id: int | None = tournament_id
         self._feed = TennisFeed(api_key=api_key)
-        self._odds_feed = OddsFeed(api_key=api_key)
         self._engine = LiveMatch(
             player_a=player_a,
             player_b=player_b,
@@ -72,8 +67,6 @@ class MatchRunner:
         )
         self._points_seen = 0
         self._last_point_processed: dict | None = None
-        self._last_odds: dict | None = None
-        self._last_bookmaker_prob: float | None = None
         self._log = log_fn
         self._logger = logger
 
@@ -107,45 +100,7 @@ class MatchRunner:
             time.sleep(min(_POLL_INTERVAL, remaining))
 
     def _poll(self) -> None:
-        current_match = {
-            "homeTeam": {"name": self._player_a_name},
-            "awayTeam": {"name": self._player_b_name},
-            "tournament": {"uniqueTournament": {"id": self._tournament_id}},
-        }
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
-            tennis_fut = executor.submit(self._feed.get_point_by_point, self._match_id)
-            odds_fut   = executor.submit(get_match_odds, current_match, ["draftkings", "fanduel"])
-            raw = tennis_fut.result()
-            try:
-                odds_result = odds_fut.result()
-            except Exception as exc:
-                self._log(f"[odds error] {exc}")
-                odds_result = None
-
-        if odds_result is not None:
-            bookmaker_prob = odds_result["bookmaker_implied_prob"]
-            self._last_bookmaker_prob = bookmaker_prob
-            self._log(
-                f"[odds] {odds_result['num_bookmakers']} books | "
-                f"implied: {bookmaker_prob:.3f} | "
-                f"credits left: {odds_result['api_credits_remaining']}"
-            )
-            if self._logger is not None:
-                try:
-                    self._logger.log_raw_odds(
-                        match_id=self._match_id,
-                        player_a=self._player_a_name,
-                        player_b=self._player_b_name,
-                        odds_result=odds_result,
-                    )
-                except Exception as exc:
-                    self._log(f"[log_raw_odds error] {exc}")
-        else:
-            bookmaker_prob = self._last_bookmaker_prob
-            self._log("[odds] fetch returned None — using last known value")
-        self._last_odds = {"home_implied_prob": bookmaker_prob} if bookmaker_prob is not None else None
-
+        raw = self._feed.get_point_by_point(self._match_id)
         all_points = self._feed.translate_to_engine_format(raw)
 
         if self._points_seen > 0:
@@ -189,7 +144,7 @@ class MatchRunner:
                 "serving": serving_engine,
             })
 
-            self._print_row(result, self._last_odds)
+            self._print_row(result, None)
             if self._logger is not None:
                 try:
                     self._logger.log_processed_state(
@@ -198,7 +153,7 @@ class MatchRunner:
                         player_b=self._player_b_name,
                         point_dict=pt,
                         prob_output=result,
-                        last_odds=self._last_odds,
+                        last_odds=None,
                         point_num=self._points_seen,
                     )
                 except Exception as exc:

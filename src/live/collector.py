@@ -3,23 +3,15 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from src.live.logger import MatchLogger
-from src.live.odds_fetcher import get_match_odds
+from src.live.player_lookup import lookup_player
 from src.live.tennis_feed import TennisFeed
 from src.engine.live_match import LiveMatch
 
 _log = logging.getLogger(__name__)
-
-_DEFAULT_PLAYER: dict = {
-    "p0_hard": 0.63,
-    "p0_clay": 0.60,
-    "p0_grass": 0.63,
-    "archetype": {"sd": 60, "ba": 60, "pe": 60, "tv": 60},
-}
-
-_ODDS_MIN_INTERVAL = 300.0  # seconds between successive odds fetches per match
 
 # Module-level lock guards all reads and writes to ACTIVE_MATCH_IDS.
 _ACTIVE_IDS_LOCK = threading.Lock()
@@ -32,8 +24,8 @@ COUNTRY_MAP: dict[int, tuple[str | None, str | None]] = {}
 class MatchWorker:
     """
     Polls one live match in a daemon thread: feeds points through the
-    LiveMatch engine, logs to DuckDB, and triggers a rate-gated odds
-    fetch whenever new points are seen.
+    LiveMatch engine and logs raw points, match details, and processed
+    points to PostgreSQL.
     """
 
     def __init__(
@@ -41,7 +33,6 @@ class MatchWorker:
         event: dict,
         rapidapi_key: str,
         poll_interval: int = 15,
-        get_odds_fn=get_match_odds,
     ) -> None:
         self._match_id        = event["id"]
         self._player_a        = event["homeTeam"]["name"]
@@ -64,8 +55,6 @@ class MatchWorker:
         self._running       = True
         self._points_seen   = 0
         self._last_point_processed: dict | None = None
-        self._last_odds_fetch_time: float = 0.0
-        self._get_odds_fn = get_odds_fn
 
         self._match_metadata = {
             "homeTeam":   {"name": self._player_a},
@@ -73,12 +62,14 @@ class MatchWorker:
             "tournament": {"uniqueTournament": {"id": self._tournament_id}},
         }
 
-        player_a_dict = {**_DEFAULT_PLAYER, "name": self._player_a}
-        player_b_dict = {**_DEFAULT_PLAYER, "name": self._player_b}
+        # Look up real p0 / archetype from PostgreSQL; falls back to neutral
+        # defaults automatically if the player is unknown or DB is unavailable.
+        self._player_a_dict = lookup_player(self._player_a, tour=self._category)
+        self._player_b_dict = lookup_player(self._player_b, tour=self._category)
 
         self._engine = LiveMatch(
-            player_a=player_a_dict,
-            player_b=player_b_dict,
+            player_a=self._player_a_dict,
+            player_b=self._player_b_dict,
             surface="hard",
             best_of=3,
         )
@@ -131,11 +122,8 @@ class MatchWorker:
                 )
                 self._reset_engine()
 
-        if len(all_points) == self._points_seen:
-            return  # no new data this cycle
-
-        new_points = all_points[self._points_seen:]
-        new_points_found = False
+        new_points_count = len(all_points) - self._points_seen
+        new_points = all_points[self._points_seen:] if new_points_count > 0 else []
 
         for pt in new_points:
             if self._engine._match_over:
@@ -193,55 +181,48 @@ class MatchWorker:
 
             self._last_point_processed = pt
             self._points_seen += 1
-            new_points_found = True
 
         _log.debug(
             "%s vs %s — %d new points processed",
             self._player_a, self._player_b, len(new_points),
         )
 
-        if new_points_found:
-            self._maybe_fetch_odds()
-
-    def _maybe_fetch_odds(self) -> None:
-        now = time.time()
-        elapsed = now - self._last_odds_fetch_time
-        if elapsed < _ODDS_MIN_INTERVAL:
-            _log.debug(
-                "odds skip for %s vs %s: only %.1fs since last fetch",
-                self._player_a, self._player_b, elapsed,
-            )
-            return
+        # Always fetch and log match detail snapshot, then refresh processed points.
+        # This keeps live_processed.points current even on cycles with no new points.
         try:
-            odds = self._get_odds_fn(self._match_metadata)
-        except Exception as exc:
-            _log.warning(
-                "odds fetch error for %s vs %s: %s",
-                self._player_a, self._player_b, exc,
-            )
-            return
-        if odds is None:
-            _log.debug(
-                "odds fetch returned None for %s vs %s",
-                self._player_a, self._player_b,
-            )
-            return
-        try:
-            self._logger.log_raw_odds(
+            raw_detail = self._feed.get_match_detail(self._match_id)
+            parsed_detail = self._feed.parse_match_detail(
+                raw_detail,
                 match_id=self._match_id,
                 player_a=self._player_a,
                 player_b=self._player_b,
-                odds_result=odds,
+                tournament_name=self._tournament_name,
+                category=self._category,
+            )
+            self._logger.log_match_detail(
+                parsed_detail,
+                polled_at=datetime.now(timezone.utc),
             )
         except Exception as exc:
-            _log.warning("log_raw_odds error: %s", exc)
-            return
-        self._last_odds_fetch_time = now
-        _log.debug(
-            "odds logged for %s vs %s (implied=%.3f)",
-            self._player_a, self._player_b,
-            odds.get("bookmaker_implied_prob", float("nan")),
-        )
+            _log.warning(
+                "match_detail fetch/log error for %s vs %s: %s",
+                self._player_a, self._player_b, exc,
+            )
+            parsed_detail = None
+
+        if parsed_detail is not None and self._points_seen > 0:
+            try:
+                self._logger.upsert_processed_points(
+                    match_id=self._match_id,
+                    player_a=self._player_a,
+                    player_b=self._player_b,
+                    match_detail=parsed_detail,
+                )
+            except Exception as exc:
+                _log.warning(
+                    "upsert_processed_points error for %s vs %s: %s",
+                    self._player_a, self._player_b, exc,
+                )
 
     def _api_confirms_finished(self) -> bool:
         """Return True only when this match_id is gone from the live feed."""
@@ -253,11 +234,10 @@ class MatchWorker:
 
     def _reset_engine(self) -> None:
         """Rebuild the engine and rewind points_seen so next poll replays all points."""
-        player_a_dict = {**_DEFAULT_PLAYER, "name": self._player_a}
-        player_b_dict = {**_DEFAULT_PLAYER, "name": self._player_b}
+        # Reuse the already-looked-up player dicts (cached by lookup_player).
         self._engine = LiveMatch(
-            player_a=player_a_dict,
-            player_b=player_b_dict,
+            player_a=self._player_a_dict,
+            player_b=self._player_b_dict,
             surface="hard",
             best_of=3,
         )
@@ -278,12 +258,10 @@ class MatchCollector:
     def __init__(
         self,
         rapidapi_key: str,
-        odds_api_key: str,
         discovery_interval: int = 60,
         worker_poll_interval: int = 15,
     ) -> None:
         self._rapidapi_key        = rapidapi_key
-        self._odds_api_key        = odds_api_key
         self._discovery_interval  = discovery_interval
         self._worker_poll_interval = worker_poll_interval
         self._active_lock   = threading.Lock()

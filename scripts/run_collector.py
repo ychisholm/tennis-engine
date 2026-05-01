@@ -59,11 +59,8 @@ def main() -> None:
     log = logging.getLogger("run_collector")
 
     rapidapi_key = os.environ.get("RAPIDAPI_KEY")
-    odds_api_key = os.environ.get("ODDS_API_KEY")
     if not rapidapi_key:
         raise ValueError("RAPIDAPI_KEY not set in .env")
-    if not odds_api_key:
-        raise ValueError("ODDS_API_KEY not set in .env")
 
     threading.Thread(target=_start_backend, daemon=True, name="backend").start()
     time.sleep(1)
@@ -72,7 +69,6 @@ def main() -> None:
     feed      = TennisFeed(api_key=rapidapi_key)
     collector = MatchCollector(
         rapidapi_key=rapidapi_key,
-        odds_api_key=odds_api_key,
     )
     scheduler_logger = MatchLogger()
     scheduler = MatchScheduler(feed=feed, collector=collector, logger=scheduler_logger)

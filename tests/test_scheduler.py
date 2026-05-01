@@ -1,7 +1,6 @@
 """
-Tests for MatchScheduler state transitions and MatchWorker odds trigger logic.
-All TennisFeed, MatchCollector, and get_match_odds calls are mocked — no
-real HTTP traffic.
+Tests for MatchScheduler state transitions and MatchWorker poll behaviour.
+All TennisFeed and MatchCollector calls are mocked — no real HTTP traffic.
 """
 from __future__ import annotations
 
@@ -121,10 +120,10 @@ def test_live_to_idle_when_no_live_or_upcoming():
 
 
 # ---------------------------------------------------------------------------
-# MatchWorker odds-trigger logic
+# MatchWorker fingerprint mutation detection
 # ---------------------------------------------------------------------------
 
-def _make_worker(get_odds_fn):
+def _make_worker():
     from src.live.collector import MatchWorker
     event = {
         "id": 42,
@@ -136,7 +135,7 @@ def _make_worker(get_odds_fn):
             "uniqueTournament": {"id": 1234},
         },
     }
-    # Bypass __init__ so we don't open real HTTP/DuckDB connections.
+    # Bypass __init__ so we don't open real HTTP/DB connections.
     w = MatchWorker.__new__(MatchWorker)
     w._match_id = event["id"]
     w._player_a = event["homeTeam"]["name"]
@@ -147,82 +146,16 @@ def _make_worker(get_odds_fn):
         "awayTeam":   {"name": w._player_b},
         "tournament": {"uniqueTournament": {"id": w._tournament_id}},
     }
-    w._last_odds_fetch_time = 0.0
     w._last_point_processed = None
     w._points_seen = 0
     w._tournament_name = "Test Open"
     w._category = "atp"
-    w._get_odds_fn = get_odds_fn
     w._logger = MagicMock()
+    _neutral = {"p0_hard": 0.63, "p0_clay": 0.60, "p0_grass": 0.65,
+                "archetype": {"sd": 60, "ba": 60, "pe": 60, "tv": 60}}
+    w._player_a_dict = {**_neutral, "name": w._player_a}
+    w._player_b_dict = {**_neutral, "name": w._player_b}
     return w
-
-
-_DUMMY_ODDS = {
-    "bookmaker_implied_prob": 0.55,
-    "num_bookmakers": 3,
-    "api_credits_remaining": "500",
-}
-
-
-def test_odds_trigger_fires_when_new_points_and_300s_elapsed():
-    get_odds = MagicMock(return_value=_DUMMY_ODDS)
-    w = _make_worker(get_odds)
-    # Pretend last fetch was 10 minutes ago.
-    w._last_odds_fetch_time = time.time() - 600
-
-    w._maybe_fetch_odds()
-
-    get_odds.assert_called_once_with(w._match_metadata)
-    w._logger.log_raw_odds.assert_called_once()
-    # Timestamp must advance.
-    assert w._last_odds_fetch_time > time.time() - 5
-
-
-def test_odds_trigger_skipped_when_under_300s_since_last_fetch():
-    get_odds = MagicMock(return_value=_DUMMY_ODDS)
-    w = _make_worker(get_odds)
-    # Last fetch 120s ago — below the 300s gate.
-    last = time.time() - 120
-    w._last_odds_fetch_time = last
-
-    w._maybe_fetch_odds()
-
-    get_odds.assert_not_called()
-    w._logger.log_raw_odds.assert_not_called()
-    assert w._last_odds_fetch_time == last
-
-
-def test_odds_trigger_does_not_fire_when_no_new_points():
-    """
-    Odds fetches are gated on new-points-found at the _poll() level.
-    When no new points are processed, _maybe_fetch_odds() is never invoked,
-    so even with 300s+ elapsed the odds API must not be called.
-    """
-    from src.live.collector import MatchWorker
-
-    get_odds = MagicMock(return_value=_DUMMY_ODDS)
-    w = _make_worker(get_odds)
-    # More than 300s since last fetch — the rate gate alone would allow a
-    # fetch, but _poll() must not trigger one without new points.
-    w._last_odds_fetch_time = time.time() - 999
-    w._points_seen = 5
-
-    feed = MagicMock()
-    feed.get_point_by_point.return_value = {"raw": "anything"}
-    feed.translate_to_engine_format.return_value = [{"p": i} for i in range(5)]
-    w._feed = feed
-    w._engine = MagicMock()
-    w._engine._match_over = False
-
-    MatchWorker._poll(w)
-
-    get_odds.assert_not_called()
-    w._logger.log_raw_odds.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# Fingerprint mutation detection
-# ---------------------------------------------------------------------------
 
 def _make_points(n: int) -> list[dict]:
     return [
@@ -239,7 +172,7 @@ def test_mutation_shrinkage_resets_engine():
     """When API returns fewer points than _points_seen, engine must be reset."""
     from src.live.collector import MatchWorker
 
-    w = _make_worker(MagicMock(return_value=None))
+    w = _make_worker()
     original_points = _make_points(5)
     w._points_seen = 5
     w._last_point_processed = original_points[4]
@@ -261,7 +194,7 @@ def test_mutation_changed_history_resets_engine():
     """When the last-seen point no longer matches all_points[_points_seen-1], engine must reset."""
     from src.live.collector import MatchWorker
 
-    w = _make_worker(MagicMock(return_value=None))
+    w = _make_worker()
     original_last = {
         "server": "home", "home_point_score": "15", "away_point_score": "0",
         "point_winner": "home", "is_ace": False, "is_double_fault": False,
@@ -290,7 +223,7 @@ def test_stable_history_does_not_reset_engine():
     """When history is unchanged, no reset should occur and points_seen advances."""
     from src.live.collector import MatchWorker
 
-    w = _make_worker(MagicMock(return_value=None))
+    w = _make_worker()
     stable_points = _make_points(5)
     w._points_seen = 5
     w._last_point_processed = stable_points[4]

@@ -86,13 +86,23 @@ def _safe_query(conn, sql: str, params=None) -> list[dict]:
 # Routes
 # ---------------------------------------------------------------------------
 
+_PROCESSED_POINT_COLS = (
+    "match_id, player_a, player_b, "
+    "set_num, game_num, point_num, "
+    "home_point, away_point, server, point_winner, "
+    "is_ace, is_double_fault, has_gap, "
+    "home_sets_won, away_sets_won, home_games_won, away_games_won, "
+    "tournament_name, category, last_updated"
+)
+
+
 @app.get("/matches")
 def list_matches():
     conn = _conn()
     try:
         return _safe_query(conn, """
             SELECT DISTINCT match_id, player_a, player_b
-            FROM live_processed.dashboard_log
+            FROM live_processed.points
             ORDER BY match_id DESC
         """)
     finally:
@@ -105,20 +115,22 @@ def list_live_matches():
         return []
     conn = _conn()
     try:
-        # DISTINCT ON (match_id) ordered by ts DESC gives the latest row per
-        # match — equivalent to the DuckDB LAST() aggregate.
-        result = _safe_query(conn, f"""
+        # DISTINCT ON (match_id) ordered by point_num DESC gives the latest
+        # processed point per match.
+        result = _safe_query(conn, """
             WITH latest AS (
               SELECT DISTINCT ON (match_id)
-                match_id, home_point, away_point, server,
-                sets_a, sets_b, games_a, games_b,
-                ts AS last_seen, player_a, player_b,
-                tournament_name, category
-              FROM live_processed.dashboard_log
+                match_id, player_a, player_b,
+                home_sets_won, away_sets_won,
+                home_games_won, away_games_won,
+                home_point, away_point, server,
+                tournament_name, category,
+                last_updated AS last_seen
+              FROM live_processed.points
               WHERE match_id = ANY(%s)
-              ORDER BY match_id, ts DESC
+              ORDER BY match_id, point_num DESC
             )
-            SELECT * FROM latest ORDER BY last_seen DESC
+            SELECT * FROM latest ORDER BY last_seen DESC NULLS LAST
         """, [list(ACTIVE_MATCH_IDS)])
     finally:
         conn.close()
@@ -133,15 +145,10 @@ def list_live_matches():
 def get_match(match_id: int):
     conn = _conn()
     try:
-        # QUALIFY is DuckDB-only; use a subquery with ROW_NUMBER() instead.
         result = _safe_query(conn, f"""
-            SELECT {_DL_COLS} FROM (
-                SELECT *,
-                       ROW_NUMBER() OVER (PARTITION BY point_num ORDER BY ts DESC) AS rn
-                FROM live_processed.dashboard_log
-                WHERE match_id = %s
-            ) sub
-            WHERE rn = 1
+            SELECT {_PROCESSED_POINT_COLS}
+            FROM live_processed.points
+            WHERE match_id = %s
             ORDER BY point_num
         """, [match_id])
     finally:

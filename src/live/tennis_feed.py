@@ -78,6 +78,42 @@ class TennisFeed:
     def get_point_by_point(self, match_id: int | str) -> dict:
         return self._get(f"/api/tennis/event/{match_id}/point-by-point")
 
+    def get_match_detail(self, match_id: int | str) -> dict:
+        return self._get(f"/api/tennis/event/{match_id}")
+
+    def parse_match_detail(
+        self,
+        raw: dict,
+        match_id: int,
+        player_a: str,
+        player_b: str,
+        tournament_name: str,
+        category: str,
+    ) -> dict:
+        event = raw.get("event", raw)
+        home_score = event.get("homeScore", {})
+        away_score = event.get("awayScore", {})
+        status = event.get("status", {}).get("type", "unknown")
+        return {
+            "match_id": match_id,
+            "player_a": player_a,
+            "player_b": player_b,
+            "status": status,
+            "home_sets": home_score.get("current"),
+            "away_sets": away_score.get("current"),
+            "home_period1": home_score.get("period1"),
+            "away_period1": away_score.get("period1"),
+            "home_period2": home_score.get("period2"),
+            "away_period2": away_score.get("period2"),
+            "home_period3": home_score.get("period3"),
+            "away_period3": away_score.get("period3"),
+            "home_current_point": home_score.get("point"),
+            "away_current_point": away_score.get("point"),
+            "winner_code": event.get("winnerCode"),
+            "tournament_name": tournament_name,
+            "category": category,
+        }
+
     def get_upcoming_matches(self, days_ahead: int = 1) -> list[dict]:
         """Return scheduled ATP/WTA singles matches for today and the next
         ``days_ahead`` days. Matches lacking ``startTimestamp`` are skipped."""
