@@ -341,6 +341,25 @@ body{
 .pt-score-sq.bp-mark{outline:1.5px solid var(--edge-neu);outline-offset:1px}
 .pt-score-txt{min-width:22px;height:12px;display:flex;align-items:center;justify-content:center;font-size:0.58rem;color:var(--ink-3);font-variant-numeric:tabular-nums}
 .pt-live-note{padding:10px 0 2px;font-size:0.7rem;font-weight:600;color:var(--clay);font-family:'Cormorant Garamond',serif;font-style:italic;letter-spacing:0.04em}
+.gap-mark{
+  display:inline-flex;align-items:center;justify-content:center;
+  font-family:'IBM Plex Mono',monospace;font-size:0.78rem;font-weight:700;
+  color:var(--ink-3);background:rgba(217,198,168,.4);border:1px dashed var(--rule);
+  border-radius:3px;padding:0 4px;margin-left:6px;line-height:1;
+}
+.gap-mark[title]{cursor:help}
+
+/* Coming-soon placeholder overlay */
+.coming-soon-overlay{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(180deg,rgba(251,244,226,.55),rgba(251,244,226,.85));
+  pointer-events:none;border-radius:8px;
+}
+.coming-soon-msg{
+  font-family:'Cormorant Garamond',serif;font-style:italic;color:var(--ink-3);
+  font-size:0.95rem;background:var(--card);border:1px solid var(--rule);
+  padding:6px 14px;border-radius:999px;letter-spacing:0.02em;
+}
 
 /* Match Stats */
 .stat-r{display:grid;grid-template-columns:1fr auto auto;gap:20px;padding:10px 0;align-items:center;border-bottom:1px solid var(--rule)}
@@ -603,12 +622,16 @@ function MatchCard({ match, kind, onClick }) {
         cells.push(<div key={'c'+i} className={`set-score${won?' won':''}`}>{v}</div>);
       }
     } else {
-      // fall back to sets_a/sets_b counter
-      const sets = side === 'a' ? match.sets_a : match.sets_b;
+      // Prefer new schema fields, fall back to legacy.
+      const sets = side === 'a'
+        ? (match.home_sets_won ?? match.sets_a)
+        : (match.away_sets_won ?? match.sets_b);
       if (sets != null) cells.push(<div key="s" className="set-score">{sets}</div>);
     }
     if (kind === 'live') {
-      const games = side === 'a' ? match.games_a : match.games_b;
+      const games = side === 'a'
+        ? (match.home_games_won ?? match.games_a)
+        : (match.away_games_won ?? match.games_b);
       if (games != null) cells.push(<div key="live" className="set-score live">{games}</div>);
       const pts = side === 'a' ? match.home_point : match.away_point;
       if (pts != null) cells.push(<div key="pts" className="pts-score">{fmtSc(pts)}</div>);
@@ -868,8 +891,8 @@ function HeroCard({ match, latest, sc, viewPlayer, setViewPlayer, isScrubbing, i
   const playerA = match.player_a ?? 'Home (A)';
   const playerB = match.player_b ?? 'Away (B)';
   const completedSets = sc?.completedSets ?? [];
-  const gamesA = sc?.gamesA ?? latest?.games_a ?? 0;
-  const gamesB = sc?.gamesB ?? latest?.games_b ?? 0;
+  const gamesA = sc?.gamesA ?? latest?.home_games_won ?? latest?.games_a ?? 0;
+  const gamesB = sc?.gamesB ?? latest?.away_games_won ?? latest?.games_b ?? 0;
   const numSets = completedSets.length + (isFinal ? 0 : 1);
   const setHeaders = Array.from({length: numSets}, (_, i) =>
     i < completedSets.length ? `S${i+1}` : `S${i+1}*`
@@ -953,19 +976,19 @@ function HeroCard({ match, latest, sc, viewPlayer, setViewPlayer, isScrubbing, i
           <div className="hero-prob-item">
             <div className="hp-label">Model</div>
             <div className="hp-val a">{pct(modelP)}</div>
-            <div className="hp-sub">P({viewPlayer === 'A' ? lastName(playerA) : lastName(playerB)})</div>
+            <div className="hp-sub">{modelP == null ? 'Model coming soon' : `P(${viewPlayer === 'A' ? lastName(playerA) : lastName(playerB)})`}</div>
           </div>
           <div className="hero-prob-item">
             <div className="hp-label">Book</div>
             <div className="hp-val b">{pct(bookieP)}</div>
-            <div className="hp-sub">Bookmaker</div>
+            <div className="hp-sub">{bookieP == null ? 'Bookmaker n/a' : 'Bookmaker'}</div>
           </div>
           <div className="hero-prob-item">
             <div className="hp-label">Edge ⚡</div>
             <div className={`hp-val edge${edge != null && edge < 0 ? ' neg' : ''}${alert ? ' alerting' : ''}`}>
               {sign(edge)}
             </div>
-            <div className="hp-sub">{alert ? 'Alert' : 'vs Book'}</div>
+            <div className="hp-sub">{edge == null ? '—' : (alert ? 'Alert' : 'vs Book')}</div>
           </div>
         </div>
         <div className="hero-toggle">
@@ -978,21 +1001,20 @@ function HeroCard({ match, latest, sc, viewPlayer, setViewPlayer, isScrubbing, i
 }
 
 function MomentumBar({ latest, playerA, playerB }) {
-  if (!latest) return null;
-  const da = latest.d_a, db = latest.d_b;
+  const da = latest?.d_a, db = latest?.d_b;
   const valid = typeof da==='number' && typeof db==='number' && isFinite(da) && isFinite(db) && (da+db)>0;
   const pos = valid ? Math.max(0.05, Math.min(0.95, da/(da+db))) : 0.5;
   const lead = pos - 0.5;
-  const aWidth = Math.max(0, lead) * 100;       // 0 to 45
+  const aWidth = Math.max(0, lead) * 100;
   const bWidth = Math.max(0, -lead) * 100;
-  const aPct = (pos * 100).toFixed(1);
-  const bPct = ((1 - pos) * 100).toFixed(1);
+  const aPct = valid ? (pos * 100).toFixed(1) : '—';
+  const bPct = valid ? ((1 - pos) * 100).toFixed(1) : '—';
   return (
     <div className="dash-mom">
       <div className="mom-row-top">
-        <span className="mom-player-a">{lastName(playerA)} <span style={{fontVariantNumeric:'tabular-nums'}}>{aPct}%</span></span>
-        <span className="mom-center-lbl">Momentum</span>
-        <span className="mom-player-b"><span style={{fontVariantNumeric:'tabular-nums'}}>{bPct}%</span> {lastName(playerB)}</span>
+        <span className="mom-player-a">{lastName(playerA)} <span style={{fontVariantNumeric:'tabular-nums'}}>{valid ? aPct + '%' : '—'}</span></span>
+        <span className="mom-center-lbl">{valid ? 'Momentum' : 'Momentum · Model coming soon'}</span>
+        <span className="mom-player-b"><span style={{fontVariantNumeric:'tabular-nums'}}>{valid ? bPct + '%' : '—'}</span> {lastName(playerB)}</span>
       </div>
       <div className="mom-bar">
         <div className="mom-fill-a" style={{width: aWidth + '%'}}/>
@@ -1005,6 +1027,7 @@ function MomentumBar({ latest, playerA, playerB }) {
 
 function ProbChart({ data, viewPlayer, playerA, playerB }) {
   if (!data.length) return <div className="chart-empty">No points yet.</div>;
+  const hasModelData = data.some(d => d._model != null || d._bookie != null);
   const TT = ({ active, payload }) => {
     if (!active || !payload?.length) return null;
     const d = payload[0]?.payload ?? {};
@@ -1039,22 +1062,29 @@ function ProbChart({ data, viewPlayer, playerA, playerB }) {
     );
   };
   return (
-    <ResponsiveContainer width="100%" height={230}>
-      <ComposedChart data={data} margin={{top:4, right:8, bottom:0, left:-8}}>
-        <CartesianGrid strokeDasharray="3 4" stroke="#d9c6a8"/>
-        <XAxis dataKey="point_num" tick={{fontSize:10, fill:'#8a6e5a'}} stroke="#d9c6a8"/>
-        <YAxis domain={[0,1]} tickFormatter={v=>(v*100).toFixed(0)+'%'}
-               tick={{fontSize:10, fill:'#8a6e5a'}} stroke="#d9c6a8"/>
-        <Tooltip content={<TT/>}/>
-        <Legend wrapperStyle={{fontSize:'0.72rem', paddingTop:8, color:'#5a4234'}}/>
-        <Area dataKey="lower" stackId="band" stroke="none" fill="transparent" fillOpacity={0} legendType="none" dot={false}/>
-        <Area dataKey="gap"   stackId="band" stroke="none" fill="#c85a33" fillOpacity={0.18} name="Edge band" dot={false}/>
-        <Line type="monotone" dataKey="_model"  stroke="#2b1d15" strokeWidth={2.5} dot={false}
-              name={`Model P(${viewPlayer === 'A' ? lastName(playerA) : lastName(playerB)})`}/>
-        <Line type="monotone" dataKey="_bookie" stroke="#c85a33" strokeWidth={2} strokeDasharray="5 4" dot={false}
-              name={`Book P(${viewPlayer === 'A' ? lastName(playerA) : lastName(playerB)})`} connectNulls/>
-      </ComposedChart>
-    </ResponsiveContainer>
+    <div style={{position:'relative'}}>
+      <ResponsiveContainer width="100%" height={230}>
+        <ComposedChart data={data} margin={{top:4, right:8, bottom:0, left:-8}}>
+          <CartesianGrid strokeDasharray="3 4" stroke="#d9c6a8"/>
+          <XAxis dataKey="point_num" tick={{fontSize:10, fill:'#8a6e5a'}} stroke="#d9c6a8"/>
+          <YAxis domain={[0,1]} tickFormatter={v=>(v*100).toFixed(0)+'%'}
+                 tick={{fontSize:10, fill:'#8a6e5a'}} stroke="#d9c6a8"/>
+          <Tooltip content={<TT/>}/>
+          <Legend wrapperStyle={{fontSize:'0.72rem', paddingTop:8, color:'#5a4234'}}/>
+          <Area dataKey="lower" stackId="band" stroke="none" fill="transparent" fillOpacity={0} legendType="none" dot={false}/>
+          <Area dataKey="gap"   stackId="band" stroke="none" fill="#c85a33" fillOpacity={0.18} name="Edge band" dot={false}/>
+          <Line type="monotone" dataKey="_model"  stroke="#2b1d15" strokeWidth={2.5} dot={false}
+                name={`Model P(${viewPlayer === 'A' ? lastName(playerA) : lastName(playerB)})`}/>
+          <Line type="monotone" dataKey="_bookie" stroke="#c85a33" strokeWidth={2} strokeDasharray="5 4" dot={false}
+                name={`Book P(${viewPlayer === 'A' ? lastName(playerA) : lastName(playerB)})`} connectNulls/>
+        </ComposedChart>
+      </ResponsiveContainer>
+      {!hasModelData && (
+        <div className="coming-soon-overlay">
+          <div className="coming-soon-msg">Model coming soon · — — —</div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1076,19 +1106,22 @@ function LiveScrubber({ total, scrubIdx, onScrub, onLive }) {
 
 function SignalsCard({ latest, playerA, playerB }) {
   const SIG_KEYS = [['NMI','nmi'],['SMS','sms'],['RMS','rms'],['PMS','pms'],['GPS','gps']];
-  if (!latest) {
-    return (
-      <div className="dash-card" style={{display:'flex',flexDirection:'column',justifyContent:'center'}}>
-        <div className="dash-card-hdr"><div className="dash-sec-lbl">Signals</div></div>
-        <div className="empty-state" style={{padding:'24px 0',fontSize:'0.95rem'}}>Waiting for first point …</div>
-      </div>
-    );
-  }
   const fmtVal = v => (typeof v === 'number' && isFinite(v)) ? Math.round(v) : '—';
   const fillPct = v => (typeof v === 'number' && isFinite(v)) ? Math.max(0, Math.min(100, v)) : 0;
+  const hasAnySignal = latest && SIG_KEYS.some(([, k]) =>
+    typeof latest[k+'_a'] === 'number' && isFinite(latest[k+'_a'])
+  );
   return (
     <div className="dash-card" style={{display:'flex',flexDirection:'column',justifyContent:'center'}}>
-      <div className="dash-card-hdr"><div className="dash-sec-lbl">Signals</div></div>
+      <div className="dash-card-hdr">
+        <div className="dash-sec-lbl">Signals</div>
+        {!hasAnySignal && (
+          <div style={{fontFamily:"'Cormorant Garamond',serif",fontStyle:'italic',
+                       fontSize:'0.82rem',color:'var(--ink-3)'}}>
+            Model coming soon
+          </div>
+        )}
+      </div>
       <div className="sig-names">
         <span/>
         <span className="sig-na" style={{gridColumn:2}}>{lastName(playerA)}</span>
@@ -1097,7 +1130,8 @@ function SignalsCard({ latest, playerA, playerB }) {
         <span/>
       </div>
       {SIG_KEYS.map(([lbl, k]) => {
-        const va = latest[k+'_a'], vb = latest[k+'_b'];
+        const va = latest ? latest[k+'_a'] : null;
+        const vb = latest ? latest[k+'_b'] : null;
         return (
           <div className="sig-row-d" key={k}>
             <div className="sig-v l">{fmtVal(va)}</div>
@@ -1165,6 +1199,7 @@ function PointByPoint({ allPoints, playerA, playerB }) {
     const srv = g.points[0]?.server;
     const isBreak = winner && srv && winner !== srv;
     const hasBP   = g.points.some(p => isBP(p));
+    const hasGap  = g.points.some(p => p.has_gap === true);
     const aName = lastName(playerA);
     const bName = lastName(playerB);
 
@@ -1172,6 +1207,9 @@ function PointByPoint({ allPoints, playerA, playerB }) {
       <div className="game-block" key={`${g.set}-${g.game}`}>
         <div className="game-block-inner">
           <span className="game-sc">{sc}</span>
+          {hasGap && (
+            <span className="gap-mark" title="Data gap — game winner inferred from match-detail score">~</span>
+          )}
           <div className="pbp-names">
             <div className="pbp-srv-row">
               {srv === 'home' ? <span className="srv-dot">●</span> : <span className="srv-sp"/>}
