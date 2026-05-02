@@ -189,6 +189,7 @@ class MatchWorker:
 
         # Always fetch and log match detail snapshot, then refresh processed points.
         # This keeps live_processed.points current even on cycles with no new points.
+        polled_at = datetime.now(timezone.utc)
         try:
             raw_detail = self._feed.get_match_detail(self._match_id)
             parsed_detail = self._feed.parse_match_detail(
@@ -201,7 +202,7 @@ class MatchWorker:
             )
             self._logger.log_match_detail(
                 parsed_detail,
-                polled_at=datetime.now(timezone.utc),
+                polled_at=polled_at,
             )
         except Exception as exc:
             _log.warning(
@@ -209,6 +210,15 @@ class MatchWorker:
                 self._player_a, self._player_b, exc,
             )
             parsed_detail = None
+
+        if parsed_detail:
+            try:
+                self._logger.upsert_match_detail_points(parsed_detail, polled_at)
+            except Exception as exc:
+                _log.warning(
+                    "upsert_match_detail_points error for %s vs %s (match %s): %s",
+                    self._player_a, self._player_b, self._match_id, exc,
+                )
 
         if parsed_detail is not None and self._points_seen > 0:
             try:
