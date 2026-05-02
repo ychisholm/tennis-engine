@@ -100,13 +100,58 @@ _PROCESSED_POINT_COLS = (
 def list_matches():
     conn = _conn()
     try:
-        return _safe_query(conn, """
-            SELECT DISTINCT match_id, player_a, player_b
-            FROM live_processed.points
-            ORDER BY match_id DESC
+        rows = _safe_query(conn, """
+            WITH set_detail AS (
+                SELECT
+                    match_id,
+                    set_num,
+                    MAX(home_games_won) AS hg,
+                    MAX(away_games_won) AS ag
+                FROM live_processed.points
+                WHERE set_num IS NOT NULL
+                GROUP BY match_id, set_num
+            ),
+            set_arrays AS (
+                SELECT
+                    match_id,
+                    array_agg(hg ORDER BY set_num) AS set_scores_a,
+                    array_agg(ag ORDER BY set_num) AS set_scores_b
+                FROM set_detail
+                GROUP BY match_id
+            ),
+            match_summary AS (
+                SELECT
+                    match_id,
+                    MAX(player_a)        AS player_a,
+                    MAX(player_b)        AS player_b,
+                    MAX(tournament_name) AS tournament_name,
+                    UPPER(MAX(category)) AS category,
+                    MAX(last_updated)    AS last_updated,
+                    MAX(home_sets_won)   AS sets_a,
+                    MAX(away_sets_won)   AS sets_b
+                FROM live_processed.points
+                GROUP BY match_id
+            )
+            SELECT
+                ms.match_id,
+                ms.player_a,
+                ms.player_b,
+                ms.tournament_name,
+                ms.category,
+                to_char(ms.last_updated, 'YYYY-MM-DD') AS match_date,
+                ms.sets_a,
+                ms.sets_b,
+                sa.set_scores_a,
+                sa.set_scores_b
+            FROM match_summary ms
+            LEFT JOIN set_arrays sa ON ms.match_id = sa.match_id
+            ORDER BY ms.last_updated DESC
         """)
+        for row in rows:
+            row['is_final'] = True
     finally:
         conn.close()
+    return rows
 
 
 @app.get("/live_matches")

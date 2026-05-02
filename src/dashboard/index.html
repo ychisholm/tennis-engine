@@ -85,6 +85,40 @@ body{
   letter-spacing:0.1em;text-transform:uppercase;background:rgba(200,90,51,.1);color:var(--clay-dark);
 }
 
+/* ── RESULTS CONTROLS ─────────────────────────────────────── */
+.results-controls{
+  display:flex;align-items:center;gap:12px;margin-bottom:24px;flex-wrap:wrap;
+}
+.month-nav{
+  display:flex;align-items:center;gap:0;
+  background:var(--card);border:1px solid var(--rule);border-radius:8px;overflow:hidden;
+  flex-shrink:0;
+}
+.month-nav-btn{
+  background:transparent;border:none;color:var(--ink-2);cursor:pointer;
+  padding:8px 16px;font-size:1.2rem;line-height:1;
+  transition:background .12s,color .12s;
+}
+.month-nav-btn:hover:not(:disabled){background:rgba(200,90,51,.1);color:var(--clay)}
+.month-nav-btn:disabled{opacity:.2;cursor:default}
+.month-label{
+  font-family:'Cormorant Garamond',serif;font-size:0.95rem;font-weight:600;
+  min-width:144px;text-align:center;color:var(--ink);user-select:none;
+  padding:0 2px;
+}
+.results-search{
+  flex:1;min-width:180px;max-width:320px;
+  font-family:'Inter Tight',sans-serif;font-size:0.82rem;color:var(--ink);
+  background:var(--card);border:1px solid var(--rule);border-radius:8px;
+  padding:9px 14px;outline:none;transition:border-color .12s;
+}
+.results-search:focus{border-color:rgba(200,90,51,.45)}
+.results-search::placeholder{color:var(--ink-3)}
+.results-count{
+  font-size:0.68rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
+  color:var(--ink-3);white-space:nowrap;margin-left:auto;
+}
+
 /* ── MATCH CARD ───────────────────────────────────────────────── */
 .match-card{
   background:var(--card);border:1px solid var(--rule);border-radius:10px;
@@ -601,7 +635,10 @@ function MatchCard({ match, kind, onClick }) {
     const text = day && time ? (day === 'Today' ? time : `${day} · ${time}`) : (time || 'Scheduled');
     header = <div className="card-status-time">{text}</div>;
   } else {
-    header = <div className="card-status-final">Final</div>;
+    const dateStr = match.match_date
+      ? new Date(match.match_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : null;
+    header = <div className="card-status-final">{dateStr || 'Final'}</div>;
   }
 
   const winnerSide = kind === 'final' ? deriveWinnerSide(match) : null;
@@ -813,10 +850,12 @@ function LiveAndUpcomingTab({ onSelect }) {
 // ─── Tab 2: Results ─────────────────────────────────────────────────────────
 
 function ResultsTab({ onSelect }) {
-  const [matches, setMatches] = useState([]);
-  const [error,   setError]   = useState(null);
-  const [date,    setDate]    = useState('');
-  const [tourney, setTourney] = useState('all');
+  const nowDate = new Date();
+  const [matches,  setMatches]  = useState([]);
+  const [error,    setError]    = useState(null);
+  const [search,   setSearch]   = useState('');
+  const [curYear,  setCurYear]  = useState(nowDate.getFullYear());
+  const [curMonth, setCurMonth] = useState(nowDate.getMonth());
 
   useEffect(() => {
     Promise.all([
@@ -828,57 +867,105 @@ function ResultsTab({ onSelect }) {
     }).catch(e => setError(e.message));
   }, []);
 
+  const monthLabel = (y, m) =>
+    new Date(y, m, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const isCurrentMonth =
+    curYear === nowDate.getFullYear() && curMonth === nowDate.getMonth();
+
+  const goPrev = () => {
+    const d = new Date(curYear, curMonth - 1, 1);
+    setCurYear(d.getFullYear()); setCurMonth(d.getMonth());
+  };
+  const goNext = () => {
+    if (isCurrentMonth) return;
+    const d = new Date(curYear, curMonth + 1, 1);
+    setCurYear(d.getFullYear()); setCurMonth(d.getMonth());
+  };
+
+  // Derive unique tournaments for tooltip/future use
   const tournaments = useMemo(() => {
     const s = new Set();
-    for (const m of matches) s.add(tournamentOf(m));
+    for (const m of matches) if (m.tournament_name) s.add(m.tournament_name);
     return [...s].sort();
   }, [matches]);
 
   const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
     return matches.filter(m => {
-      if (tourney !== 'all' && tournamentOf(m) !== tourney) return false;
-      if (date) {
-        const u = m.completed_at_unix ?? m.scheduled_start_unix;
-        if (u != null) {
-          const d = new Date(u * 1000).toISOString().slice(0,10);
-          if (d !== date) return false;
-        }
+      if (m.match_date) {
+        const d = new Date(m.match_date + 'T12:00:00');
+        if (d.getFullYear() !== curYear || d.getMonth() !== curMonth) return false;
+      }
+      if (q) {
+        const hay = `${m.player_a || ''} ${m.player_b || ''} ${m.tournament_name || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [matches, tourney, date]);
+  }, [matches, curYear, curMonth, search]);
 
   const atp = filtered.filter(m => categoryOf(m) === 'ATP');
   const wta = filtered.filter(m => categoryOf(m) === 'WTA');
 
+  const hasAnyMatches = matches.some(m => {
+    if (!m.match_date) return false;
+    const d = new Date(m.match_date + 'T12:00:00');
+    return d.getFullYear() === curYear && d.getMonth() === curMonth;
+  });
+
   return (
     <div className="columns-page">
-      <div className="filter-bar">
-        <div className="filter-label">Date</div>
-        <input type="date" className="filter-input" value={date}
-               onChange={e => setDate(e.target.value)}/>
-        {date && (
-          <button className="filter-input" style={{cursor:'pointer'}}
-                  onClick={() => setDate('')}>Clear</button>
+      <div className="results-controls">
+        <div className="month-nav">
+          <button className="month-nav-btn" onClick={goPrev} title="Previous month">‹</button>
+          <span className="month-label">{monthLabel(curYear, curMonth)}</span>
+          <button
+            className="month-nav-btn"
+            onClick={goNext}
+            disabled={isCurrentMonth}
+            title="Next month"
+          >›</button>
+        </div>
+
+        <input
+          type="text"
+          className="results-search"
+          placeholder="Search player or tournament…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+        />
+
+        {filtered.length > 0 && (
+          <span className="results-count">
+            {filtered.length} match{filtered.length !== 1 ? 'es' : ''}
+          </span>
         )}
-        <div className="filter-sep"/>
-        <div className="filter-label">Tournament</div>
-        <select className="filter-input" value={tourney} onChange={e => setTourney(e.target.value)}>
-          <option value="all">All Tournaments</option>
-          {tournaments.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
       </div>
+
       {error && <div className="error-banner">⚠ {error}</div>}
-      {!filtered.length ? (
-        <div className="empty-state">No completed matches match these filters.</div>
+
+      {!hasAnyMatches && !search ? (
+        <div className="empty-state">
+          No matches recorded in {monthLabel(curYear, curMonth)}.<br/>
+          <span style={{fontSize:'0.85rem',color:'var(--ink-3)'}}>Use ‹ to go back to a month with data.</span>
+        </div>
+      ) : !filtered.length ? (
+        <div className="empty-state">
+          No matches found{search ? ` for "${search}"` : ''} in {monthLabel(curYear, curMonth)}.
+        </div>
       ) : (
         <div className="col-grid">
-          <TourColumn title="ATP" subtitle="Men's Tour" items={atp}
-                      onSelect={onSelect} kindOf={() => 'final'}
-                      emptyLabel="No ATP results"/>
-          <TourColumn title="WTA" subtitle="Women's Tour" items={wta}
-                      onSelect={onSelect} kindOf={() => 'final'}
-                      emptyLabel="No WTA results"/>
+          <TourColumn
+            title="ATP" subtitle="Men's Tour" items={atp}
+            onSelect={onSelect} kindOf={() => 'final'}
+            emptyLabel="No ATP results this month"
+          />
+          <TourColumn
+            title="WTA" subtitle="Women's Tour" items={wta}
+            onSelect={onSelect} kindOf={() => 'final'}
+            emptyLabel="No WTA results this month"
+          />
         </div>
       )}
     </div>
