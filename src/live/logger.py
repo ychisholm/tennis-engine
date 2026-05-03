@@ -194,13 +194,21 @@ INSERT INTO live_processed.points (
     source, tournament_name, category, last_updated
 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (match_id, point_num) DO UPDATE SET
-    last_updated   = EXCLUDED.last_updated,
+    set_num        = EXCLUDED.set_num,
+    game_num       = EXCLUDED.game_num,
+    home_point     = EXCLUDED.home_point,
+    away_point     = EXCLUDED.away_point,
+    server         = EXCLUDED.server,
+    point_winner   = EXCLUDED.point_winner,
+    is_ace         = EXCLUDED.is_ace,
+    is_double_fault = EXCLUDED.is_double_fault,
     has_gap        = EXCLUDED.has_gap,
     home_sets_won  = EXCLUDED.home_sets_won,
     away_sets_won  = EXCLUDED.away_sets_won,
     home_games_won = EXCLUDED.home_games_won,
     away_games_won = EXCLUDED.away_games_won,
-    source         = EXCLUDED.source
+    source         = EXCLUDED.source,
+    last_updated   = EXCLUDED.last_updated
 """
 
 _INSERT_MATCH_DETAIL_POINT = """
@@ -653,7 +661,7 @@ class MatchLogger:
                        tournament_name, category, ts
                 FROM live_raw.tennisapi_points
                 WHERE match_id = %s
-                ORDER BY point_num, ts
+                ORDER BY point_num, ts DESC
                 """,
                 [match_id_int],
             )
@@ -738,38 +746,40 @@ class MatchLogger:
             window_end = curr.get("ts")
 
             md_rows: list = []
-            if window_start is None or window_end is None:
-                _log.warning(
-                    "upsert_processed_points: gap window missing timestamps "
-                    "for match_id=%s between point_num=%s and point_num=%s",
-                    match_id_int, prev["point_num"], curr["point_num"],
+            cur = self._conn.cursor()
+            try:
+                # Query by score-state range rather than ingestion timestamps.
+                # Timestamp-windowing fails for live matches because consecutive
+                # pbp points ingested in the same poll cycle are milliseconds
+                # apart — no 15s match_detail snapshot can land in that window.
+                # Instead, fetch all detail snapshots whose (set, games) state
+                # falls between the two gap boundary points, then filter out
+                # boundary scores in the loop below.
+                prev_set = prev.get("set_num") or 0
+                curr_set = curr.get("set_num") or 0
+                cur.execute(
+                    """
+                    SELECT set_num, home_point, away_point,
+                           home_sets, away_sets, home_games, away_games,
+                           polled_at, tournament_name, category
+                    FROM live_processed.match_detail_points
+                    WHERE match_id = %s
+                      AND set_num BETWEEN %s AND %s
+                    ORDER BY polled_at
+                    """,
+                    [match_id_int, prev_set, curr_set],
                 )
-            else:
-                cur = self._conn.cursor()
-                try:
-                    cur.execute(
-                        """
-                        SELECT set_num, home_point, away_point,
-                               home_sets, away_sets, home_games, away_games,
-                               polled_at, tournament_name, category
-                        FROM live_processed.match_detail_points
-                        WHERE match_id = %s
-                          AND polled_at > %s
-                          AND polled_at < %s
-                        """,
-                        [match_id_int, window_start, window_end],
-                    )
-                    md_rows = cur.fetchall()
-                except Exception as exc:
-                    self._conn.rollback()
-                    _log.warning(
-                        "upsert_processed_points: match_detail_points query "
-                        "failed for match_id=%s: %s",
-                        match_id_int, exc,
-                    )
-                    md_rows = []
-                finally:
-                    cur.close()
+                md_rows = cur.fetchall()
+            except Exception as exc:
+                self._conn.rollback()
+                _log.warning(
+                    "upsert_processed_points: match_detail_points query "
+                    "failed for match_id=%s: %s",
+                    match_id_int, exc,
+                )
+                md_rows = []
+            finally:
+                cur.close()
 
             md_rows_sorted = sorted(
                 md_rows,
