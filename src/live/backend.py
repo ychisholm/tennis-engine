@@ -86,20 +86,18 @@ def _safe_query(conn, sql: str, params=None) -> list[dict]:
 # Routes
 # ---------------------------------------------------------------------------
 
-_SCORE_RANK: dict[str, int] = {"0": 0, "15": 1, "30": 2, "40": 3, "AD": 4}
-
-
 def _enrich_detail_points(rows: list[dict], first_server: str = "home") -> list[dict]:
     """Convert match_detail_points rows into point-level rows for the dashboard.
 
-    Each row in match_detail_points represents one unique score state (one
-    point-in-progress snapshot). This function:
-      - Assigns set_num, game_num, point_num
-      - Derives server from game parity (who served game 1 = first_server)
-      - Derives point_winner from score transitions between consecutive rows
-      - Retroactively fixes the last row of each game when a game boundary is
-        detected (the game-winning point transitions directly to 0-0 in the
-        next game, so we derive the winner from which games_count increased)
+    Assigns set_num/game_num/point_num and derives server from game parity
+    (who served game 1 = first_server). point_winner is read directly from
+    the column — derivation lives in the logger so all consumers see the
+    same value.
+
+    Rows with status='finished' represent the post-match snapshot whose
+    home_sets_won/away_sets_won has already advanced to the final tally
+    (creating a phantom set N+1 row); these are excluded from the dashboard
+    point-by-point view. Final score is shown via /matches.
 
     Player A = home, Player B = away throughout.
     """
@@ -109,14 +107,10 @@ def _enrich_detail_points(rows: list[dict], first_server: str = "home") -> list[
     sorted_rows = sorted(rows, key=lambda r: str(r.get("polled_at") or ""))
 
     result: list[dict] = []
-    prev: dict | None = None
-    prev_game_key: tuple | None = None
-    prev_home_g: int = 0
-    prev_away_g: int = 0
-    prev_home_sets: int = 0
-    prev_away_sets: int = 0
-
     for row in sorted_rows:
+        if (row.get("status") or "").lower() == "finished":
+            continue
+
         home_sets = row.get("home_sets_won") or 0
         away_sets = row.get("away_sets_won") or 0
         set_num = home_sets + away_sets + 1
@@ -129,9 +123,6 @@ def _enrich_detail_points(rows: list[dict], first_server: str = "home") -> list[
         else:
             game_num = home_g + away_g + 1
 
-        home_pt = str(row.get("home_current_point") or "0")
-        away_pt = str(row.get("away_current_point") or "0")
-
         prev_set_games = 0
         for s in range(1, set_num):
             prev_set_games += (row.get(f"home_set{s}_games") or 0) + (row.get(f"away_set{s}_games") or 0)
@@ -142,34 +133,6 @@ def _enrich_detail_points(rows: list[dict], first_server: str = "home") -> list[
         else:
             server = "away" if first_server == "home" else "home"
 
-        game_key = (set_num, game_num)
-
-        point_winner = None
-        if prev is not None and prev_game_key == game_key:
-            ph = _SCORE_RANK.get(str(prev.get("home_current_point") or "0"), 0)
-            pa = _SCORE_RANK.get(str(prev.get("away_current_point") or "0"), 0)
-            ch = _SCORE_RANK.get(home_pt, 0)
-            ca = _SCORE_RANK.get(away_pt, 0)
-
-            if ch > ph or ca < pa:
-                point_winner = "home"
-            elif ca > pa or ch < ph:
-                point_winner = "away"
-        elif prev is not None and prev_game_key != game_key and result:
-            if home_sets == prev_home_sets and away_sets == prev_away_sets:
-                if home_g > prev_home_g:
-                    result[-1]["point_winner"] = "home"
-                elif away_g > prev_away_g:
-                    result[-1]["point_winner"] = "away"
-            else:
-                prev_s = prev_game_key[0]
-                prev_s_total_h = row.get(f"home_set{prev_s}_games") or 0
-                prev_s_total_a = row.get(f"away_set{prev_s}_games") or 0
-                if prev_s_total_h > prev_home_g:
-                    result[-1]["point_winner"] = "home"
-                elif prev_s_total_a > prev_away_g:
-                    result[-1]["point_winner"] = "away"
-
         result.append({
             "point_num":       len(result),
             "match_id":        row.get("match_id"),
@@ -177,10 +140,10 @@ def _enrich_detail_points(rows: list[dict], first_server: str = "home") -> list[
             "player_b":        row.get("player_b"),
             "set_num":         set_num,
             "game_num":        game_num,
-            "home_point":      home_pt,
-            "away_point":      away_pt,
+            "home_point":      str(row.get("home_current_point") or "0"),
+            "away_point":      str(row.get("away_current_point") or "0"),
             "server":          server,
-            "point_winner":    point_winner,
+            "point_winner":    row.get("point_winner"),
             "home_sets_won":   home_sets,
             "away_sets_won":   away_sets,
             "home_games_won":  home_g,
@@ -192,13 +155,6 @@ def _enrich_detail_points(rows: list[dict], first_server: str = "home") -> list[
             "category":        row.get("category"),
             "last_updated":    row.get("polled_at"),
         })
-
-        prev = row
-        prev_game_key = game_key
-        prev_home_g = home_g
-        prev_away_g = away_g
-        prev_home_sets = home_sets
-        prev_away_sets = away_sets
 
     return result
 
@@ -280,14 +236,14 @@ def get_match(match_id: int):
     try:
         rows = _safe_query(conn, """
             SELECT
-                match_id, player_a, player_b, polled_at,
+                match_id, player_a, player_b, polled_at, status,
                 home_sets_won, away_sets_won,
                 home_set1_games, away_set1_games,
                 home_set2_games, away_set2_games,
                 home_set3_games, away_set3_games,
                 home_current_games, away_current_games,
                 home_current_point, away_current_point,
-                winner_code, tournament_name, category
+                point_winner, winner_code, tournament_name, category
             FROM live_processed.match_detail_points
             WHERE match_id = %s
             ORDER BY

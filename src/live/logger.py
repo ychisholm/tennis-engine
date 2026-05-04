@@ -115,12 +115,14 @@ _SETUP_STMTS = [
         away_current_games    INTEGER,
         home_current_point    VARCHAR,
         away_current_point    VARCHAR,
+        point_winner          VARCHAR,
         winner_code           INTEGER,
         tournament_name       VARCHAR,
         category              VARCHAR,
         PRIMARY KEY (match_id, home_sets_won, away_sets_won, home_current_games, away_current_games, home_current_point, away_current_point)
     )
     """,
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS point_winner VARCHAR",
     "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS home_sets_won INTEGER",
     "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS away_sets_won INTEGER",
     "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS home_set1_games INTEGER",
@@ -239,11 +241,86 @@ INSERT INTO live_processed.match_detail_points (
     home_set3_games, away_set3_games,
     home_current_games, away_current_games,
     home_current_point, away_current_point,
-    winner_code, tournament_name, category
-) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    point_winner, winner_code, tournament_name, category
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (match_id, home_sets_won, away_sets_won, home_current_games, away_current_games, home_current_point, away_current_point)
 DO UPDATE SET polled_at = EXCLUDED.polled_at
 """
+
+_SCORE_RANK_LOGGER: dict[str, int] = {"0": 0, "15": 1, "30": 2, "40": 3, "AD": 4}
+
+
+def _derive_point_winner(prev: dict, curr: dict) -> str | None:
+    """Derive the winner of curr from the score-state delta vs prev.
+
+    Same-game (sets and current_games unchanged): compare point ranks. A point
+    won by side X either advances X's score or causes the opponent's AD to
+    regress to 40 (deuce reset).
+
+    Game boundary (current_games or sets changed): not used here — the new
+    row's point score is 0-0 (or near it), so winner of that point is
+    indeterminable from this row alone. Game-boundary winners are assigned
+    retroactively via _retro_assign_prev_game_winner on the previous game's
+    last row.
+    """
+    if prev is None:
+        return None
+    same_sets = (
+        (prev.get("home_sets_won") or 0) == (curr.get("home_sets_won") or 0)
+        and (prev.get("away_sets_won") or 0) == (curr.get("away_sets_won") or 0)
+    )
+    same_games = (
+        (prev.get("home_current_games") or 0) == (curr.get("home_current_games") or 0)
+        and (prev.get("away_current_games") or 0) == (curr.get("away_current_games") or 0)
+    )
+    if not (same_sets and same_games):
+        return None
+
+    ph = _SCORE_RANK_LOGGER.get(str(prev.get("home_current_point") or "0"), 0)
+    pa = _SCORE_RANK_LOGGER.get(str(prev.get("away_current_point") or "0"), 0)
+    ch = _SCORE_RANK_LOGGER.get(str(curr.get("home_current_point") or "0"), 0)
+    ca = _SCORE_RANK_LOGGER.get(str(curr.get("away_current_point") or "0"), 0)
+
+    if ch > ph or ca < pa:
+        return "home"
+    if ca > pa or ch < ph:
+        return "away"
+    return None
+
+
+def _retro_winner_for_prev_game(prev: dict, curr: dict) -> str | None:
+    """When curr begins a new game, infer who won prev's game from the games
+    counters that incremented between prev and curr."""
+    if prev is None:
+        return None
+    prev_h_sets = prev.get("home_sets_won") or 0
+    prev_a_sets = prev.get("away_sets_won") or 0
+    curr_h_sets = curr.get("home_sets_won") or 0
+    curr_a_sets = curr.get("away_sets_won") or 0
+    prev_h_g = prev.get("home_current_games") or 0
+    prev_a_g = prev.get("away_current_games") or 0
+
+    if prev_h_sets == curr_h_sets and prev_a_sets == curr_a_sets:
+        curr_h_g = curr.get("home_current_games") or 0
+        curr_a_g = curr.get("away_current_games") or 0
+        if curr_h_g > prev_h_g:
+            return "home"
+        if curr_a_g > prev_a_g:
+            return "away"
+        return None
+
+    # Set boundary: previous game finished its set. Read the completed set's
+    # totals (carried in curr) and compare to prev's in-set games.
+    prev_set = prev_h_sets + prev_a_sets + 1
+    if prev_set < 1 or prev_set > 3:
+        return None
+    completed_h = curr.get(f"home_set{prev_set}_games") or 0
+    completed_a = curr.get(f"away_set{prev_set}_games") or 0
+    if completed_h > prev_h_g:
+        return "home"
+    if completed_a > prev_a_g:
+        return "away"
+    return None
 
 _INSERT_DASHBOARD = """
 INSERT INTO live_processed.dashboard_log (
@@ -578,9 +655,12 @@ class MatchLogger:
     ) -> None:
         """Insert one score-state snapshot into live_processed.match_detail_points.
 
-        Each unique combination of (match_id, sets, games, point score) maps to
-        one row. Repeated polls with the same score state update polled_at only.
-        Skips snapshots with no current point score.
+        Filters out spurious "0-0" rows that the API briefly emits between
+        points (when a non-0-0 score already exists at this game state, a
+        later 0-0 is treated as bogus and skipped). Derives point_winner
+        from the previous row for this match, and retroactively assigns the
+        winner of the previous game's last row when a game boundary is
+        detected.
         """
         match_id = parsed_detail.get("match_id")
         try:
@@ -603,9 +683,90 @@ class MatchLogger:
 
         home_current_games = parsed_detail.get(f"home_period{current_set}") or 0
         away_current_games = parsed_detail.get(f"away_period{current_set}") or 0
+        home_pt_s = str(home_pt)
+        away_pt_s = str(away_pt)
 
         cur = self._conn.cursor()
         try:
+            # Skip bogus 0-0: a 0-0 row at this (sets, games) state is only
+            # legitimate if no other (non 0-0) row already exists there.
+            if home_pt_s == "0" and away_pt_s == "0":
+                cur.execute(
+                    """
+                    SELECT 1 FROM live_processed.match_detail_points
+                    WHERE match_id = %s
+                      AND home_sets_won = %s AND away_sets_won = %s
+                      AND home_current_games = %s AND away_current_games = %s
+                      AND NOT (home_current_point = '0' AND away_current_point = '0')
+                    LIMIT 1
+                    """,
+                    [match_id_int, home_sets, away_sets,
+                     home_current_games, away_current_games],
+                )
+                if cur.fetchone():
+                    return
+
+            curr_state = {
+                "home_sets_won": home_sets,
+                "away_sets_won": away_sets,
+                "home_current_games": home_current_games,
+                "away_current_games": away_current_games,
+                "home_current_point": home_pt_s,
+                "away_current_point": away_pt_s,
+                "home_set1_games": parsed_detail.get("home_period1") or 0,
+                "away_set1_games": parsed_detail.get("away_period1") or 0,
+                "home_set2_games": parsed_detail.get("home_period2") or 0,
+                "away_set2_games": parsed_detail.get("away_period2") or 0,
+                "home_set3_games": parsed_detail.get("home_period3") or 0,
+                "away_set3_games": parsed_detail.get("away_period3") or 0,
+            }
+
+            # Look up the most recent row for this match (excluding any row
+            # that would be the same PK as this one, since that's an idempotent
+            # repoll, not a transition).
+            cur.execute(
+                """
+                SELECT home_sets_won, away_sets_won,
+                       home_current_games, away_current_games,
+                       home_current_point, away_current_point,
+                       home_set1_games, away_set1_games,
+                       home_set2_games, away_set2_games,
+                       home_set3_games, away_set3_games
+                FROM live_processed.match_detail_points
+                WHERE match_id = %s
+                  AND NOT (
+                    home_sets_won = %s AND away_sets_won = %s
+                    AND home_current_games = %s AND away_current_games = %s
+                    AND home_current_point = %s AND away_current_point = %s
+                  )
+                ORDER BY polled_at DESC
+                LIMIT 1
+                """,
+                [match_id_int,
+                 home_sets, away_sets,
+                 home_current_games, away_current_games,
+                 home_pt_s, away_pt_s],
+            )
+            prev_row = cur.fetchone()
+            prev: dict | None = None
+            if prev_row:
+                prev = {
+                    "home_sets_won": prev_row[0],
+                    "away_sets_won": prev_row[1],
+                    "home_current_games": prev_row[2],
+                    "away_current_games": prev_row[3],
+                    "home_current_point": prev_row[4],
+                    "away_current_point": prev_row[5],
+                    "home_set1_games": prev_row[6],
+                    "away_set1_games": prev_row[7],
+                    "home_set2_games": prev_row[8],
+                    "away_set2_games": prev_row[9],
+                    "home_set3_games": prev_row[10],
+                    "away_set3_games": prev_row[11],
+                }
+
+            point_winner = _derive_point_winner(prev, curr_state)
+
             cur.execute(_UPSERT_MATCH_DETAIL_POINT, [
                 match_id_int,
                 parsed_detail.get("player_a"),
@@ -614,20 +775,46 @@ class MatchLogger:
                 parsed_detail.get("status"),
                 home_sets,
                 away_sets,
-                parsed_detail.get("home_period1") or 0,
-                parsed_detail.get("away_period1") or 0,
-                parsed_detail.get("home_period2") or 0,
-                parsed_detail.get("away_period2") or 0,
-                parsed_detail.get("home_period3") or 0,
-                parsed_detail.get("away_period3") or 0,
+                curr_state["home_set1_games"],
+                curr_state["away_set1_games"],
+                curr_state["home_set2_games"],
+                curr_state["away_set2_games"],
+                curr_state["home_set3_games"],
+                curr_state["away_set3_games"],
                 home_current_games,
                 away_current_games,
-                str(home_pt),
-                str(away_pt),
+                home_pt_s,
+                away_pt_s,
+                point_winner,
                 parsed_detail.get("winner_code"),
                 parsed_detail.get("tournament_name"),
                 parsed_detail.get("category"),
             ])
+
+            # Retroactive: when this row begins a new game, the previous row
+            # was the last point of the prior game. Assign its winner from
+            # which side's games count incremented.
+            retro = _retro_winner_for_prev_game(prev, curr_state)
+            if retro and prev is not None:
+                # Overwrite any in-game derivation: the last captured row of a
+                # finished game IS the game-winning point in the dashboard view,
+                # since the actual final point was missed by polling. Attribute
+                # it to the side whose games count just incremented.
+                cur.execute(
+                    """
+                    UPDATE live_processed.match_detail_points
+                    SET point_winner = %s
+                    WHERE match_id = %s
+                      AND home_sets_won = %s AND away_sets_won = %s
+                      AND home_current_games = %s AND away_current_games = %s
+                      AND home_current_point = %s AND away_current_point = %s
+                    """,
+                    [retro, match_id_int,
+                     prev["home_sets_won"], prev["away_sets_won"],
+                     prev["home_current_games"], prev["away_current_games"],
+                     prev["home_current_point"], prev["away_current_point"]],
+                )
+
             self._conn.commit()
         except Exception as exc:
             self._conn.rollback()

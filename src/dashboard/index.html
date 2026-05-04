@@ -1322,7 +1322,9 @@ function PointByPoint({ allPoints, playerA, playerB }) {
             </div>
           </div>
           <div className="pbp-pts">
-            {g.points.map((pt, pi) => {
+            {g.points
+              .filter(pt => !(String(pt.home_point) === '0' && String(pt.away_point) === '0'))
+              .map((pt, pi) => {
               const homeWon = pt.point_winner === 'home';
               const awayWon = pt.point_winner === 'away';
               const isBPpt  = isBP(pt);
