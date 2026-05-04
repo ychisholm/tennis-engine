@@ -765,7 +765,15 @@ class MatchLogger:
                     "away_set3_games": prev_row[11],
                 }
 
-            point_winner = _derive_point_winner(prev, curr_state)
+            # Intra-game delta first; fall back to games-count delta when this
+            # row begins a new game (the 0-0 starter then represents the
+            # game-winning point that polling missed). Stats counts depend on
+            # this — without the fallback, every game's deciding point goes
+            # unattributed.
+            point_winner = (
+                _derive_point_winner(prev, curr_state)
+                or _retro_winner_for_prev_game(prev, curr_state)
+            )
 
             cur.execute(_UPSERT_MATCH_DETAIL_POINT, [
                 match_id_int,
@@ -796,10 +804,14 @@ class MatchLogger:
             # which side's games count incremented.
             retro = _retro_winner_for_prev_game(prev, curr_state)
             if retro and prev is not None:
-                # Overwrite any in-game derivation: the last captured row of a
-                # finished game IS the game-winning point in the dashboard view,
-                # since the actual final point was missed by polling. Attribute
-                # it to the side whose games count just incremented.
+                # Only fill in when intra-game derivation couldn't compute one
+                # (e.g. the only captured row of a game was its 0-0 starter).
+                # Never overwrite an existing winner: the score-delta between
+                # two captured rows is point-accurate, while the games-count
+                # delta only tells us who won the game, not who won that
+                # specific bubble. The dashboard infers game winner from
+                # score position via inferGameWinner, so we don't need to
+                # mislabel mid-game points to drive game-level display.
                 cur.execute(
                     """
                     UPDATE live_processed.match_detail_points
@@ -808,6 +820,7 @@ class MatchLogger:
                       AND home_sets_won = %s AND away_sets_won = %s
                       AND home_current_games = %s AND away_current_games = %s
                       AND home_current_point = %s AND away_current_point = %s
+                      AND point_winner IS NULL
                     """,
                     [retro, match_id_int,
                      prev["home_sets_won"], prev["away_sets_won"],
