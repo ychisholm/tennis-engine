@@ -98,22 +98,41 @@ _SETUP_STMTS = [
     "ALTER TABLE live_processed.points ALTER COLUMN point_num TYPE NUMERIC USING point_num::NUMERIC",
     """
     CREATE TABLE IF NOT EXISTS live_processed.match_detail_points (
-        match_id            INTEGER,
-        player_a            VARCHAR,
-        player_b            VARCHAR,
-        polled_at           TIMESTAMPTZ,
-        set_num             INTEGER,
-        home_point          VARCHAR,
-        away_point          VARCHAR,
-        home_sets           INTEGER,
-        away_sets           INTEGER,
-        home_games          INTEGER,
-        away_games          INTEGER,
-        tournament_name     VARCHAR,
-        category            VARCHAR,
-        PRIMARY KEY (match_id, set_num, home_games, away_games, home_point, away_point)
+        match_id              INTEGER,
+        player_a              VARCHAR,
+        player_b              VARCHAR,
+        polled_at             TIMESTAMPTZ,
+        status                VARCHAR,
+        home_sets_won         INTEGER,
+        away_sets_won         INTEGER,
+        home_set1_games       INTEGER,
+        away_set1_games       INTEGER,
+        home_set2_games       INTEGER,
+        away_set2_games       INTEGER,
+        home_set3_games       INTEGER,
+        away_set3_games       INTEGER,
+        home_current_games    INTEGER,
+        away_current_games    INTEGER,
+        home_current_point    VARCHAR,
+        away_current_point    VARCHAR,
+        winner_code           INTEGER,
+        tournament_name       VARCHAR,
+        category              VARCHAR,
+        PRIMARY KEY (match_id, home_sets_won, away_sets_won, home_current_games, away_current_games, home_current_point, away_current_point)
     )
     """,
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS home_sets_won INTEGER",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS away_sets_won INTEGER",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS home_set1_games INTEGER",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS away_set1_games INTEGER",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS home_set2_games INTEGER",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS away_set2_games INTEGER",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS home_set3_games INTEGER",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS away_set3_games INTEGER",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS home_current_games INTEGER",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS away_current_games INTEGER",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS status VARCHAR",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS winner_code INTEGER",
     """
     CREATE TABLE IF NOT EXISTS live_processed.dashboard_log (
         ts               TIMESTAMPTZ,
@@ -211,14 +230,18 @@ ON CONFLICT (match_id, point_num) DO UPDATE SET
     last_updated   = EXCLUDED.last_updated
 """
 
-_INSERT_MATCH_DETAIL_POINT = """
+_UPSERT_MATCH_DETAIL_POINT = """
 INSERT INTO live_processed.match_detail_points (
-    match_id, player_a, player_b, polled_at,
-    set_num, home_point, away_point,
-    home_sets, away_sets, home_games, away_games,
-    tournament_name, category
-) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-ON CONFLICT (match_id, set_num, home_games, away_games, home_point, away_point)
+    match_id, player_a, player_b, polled_at, status,
+    home_sets_won, away_sets_won,
+    home_set1_games, away_set1_games,
+    home_set2_games, away_set2_games,
+    home_set3_games, away_set3_games,
+    home_current_games, away_current_games,
+    home_current_point, away_current_point,
+    winner_code, tournament_name, category
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (match_id, home_sets_won, away_sets_won, home_current_games, away_current_games, home_current_point, away_current_point)
 DO UPDATE SET polled_at = EXCLUDED.polled_at
 """
 
@@ -553,14 +576,11 @@ class MatchLogger:
         parsed_detail: dict,
         polled_at: datetime,
     ) -> None:
-        """Insert one row into live_processed.match_detail_points capturing the
-        current score state from a parsed match_detail snapshot. Skipped when
-        the match is already complete or no live point score is reported.
+        """Insert one score-state snapshot into live_processed.match_detail_points.
 
-        The destination PRIMARY KEY (match_id, set_num, home_games, away_games,
-        home_point, away_point) makes this DB-level idempotent: rapid polls
-        with the same score state collapse to a single row whose polled_at is
-        kept current.
+        Each unique combination of (match_id, sets, games, point score) maps to
+        one row. Repeated polls with the same score state update polled_at only.
+        Skips snapshots with no current point score.
         """
         match_id = parsed_detail.get("match_id")
         try:
@@ -568,17 +588,6 @@ class MatchLogger:
         except (ValueError, TypeError):
             match_id_int = None
         if match_id_int is None:
-            _log.warning(
-                "upsert_match_detail_points: missing/invalid match_id in parsed_detail",
-            )
-            return
-
-        # Skip when the match is already complete.
-        winner_code = parsed_detail.get("winner_code")
-        status = parsed_detail.get("status")
-        if winner_code:
-            return
-        if status and status not in ("inprogress", "started", "live"):
             return
 
         home_pt = parsed_detail.get("home_current_point")
@@ -592,23 +601,30 @@ class MatchLogger:
         if current_set < 1 or current_set > 5:
             return
 
-        home_games = parsed_detail.get(f"home_period{current_set}") or 0
-        away_games = parsed_detail.get(f"away_period{current_set}") or 0
+        home_current_games = parsed_detail.get(f"home_period{current_set}") or 0
+        away_current_games = parsed_detail.get(f"away_period{current_set}") or 0
 
         cur = self._conn.cursor()
         try:
-            cur.execute(_INSERT_MATCH_DETAIL_POINT, [
+            cur.execute(_UPSERT_MATCH_DETAIL_POINT, [
                 match_id_int,
                 parsed_detail.get("player_a"),
                 parsed_detail.get("player_b"),
                 polled_at,
-                current_set,
-                str(home_pt),
-                str(away_pt),
+                parsed_detail.get("status"),
                 home_sets,
                 away_sets,
-                home_games,
-                away_games,
+                parsed_detail.get("home_period1") or 0,
+                parsed_detail.get("away_period1") or 0,
+                parsed_detail.get("home_period2") or 0,
+                parsed_detail.get("away_period2") or 0,
+                parsed_detail.get("home_period3") or 0,
+                parsed_detail.get("away_period3") or 0,
+                home_current_games,
+                away_current_games,
+                str(home_pt),
+                str(away_pt),
+                parsed_detail.get("winner_code"),
                 parsed_detail.get("tournament_name"),
                 parsed_detail.get("category"),
             ])
@@ -616,10 +632,8 @@ class MatchLogger:
         except Exception as exc:
             self._conn.rollback()
             _log.warning(
-                "upsert_match_detail_points failed for match_id=%s "
-                "(set=%s, %s-%s, score=%s-%s): %s",
-                match_id_int, current_set, home_games, away_games,
-                home_pt, away_pt, exc,
+                "upsert_match_detail_points failed for match_id=%s: %s",
+                match_id_int, exc,
             )
         finally:
             cur.close()

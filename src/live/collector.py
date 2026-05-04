@@ -7,9 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from src.live.logger import MatchLogger
-from src.live.player_lookup import lookup_player
 from src.live.tennis_feed import TennisFeed
-from src.engine.live_match import LiveMatch
 
 _log = logging.getLogger(__name__)
 
@@ -23,9 +21,9 @@ COUNTRY_MAP: dict[int, tuple[str | None, str | None]] = {}
 
 class MatchWorker:
     """
-    Polls one live match in a daemon thread: feeds points through the
-    LiveMatch engine and logs raw points, match details, and processed
-    points to PostgreSQL.
+    Polls one live match in a daemon thread, fetching match-detail snapshots
+    and writing them to live_raw.match_details + live_processed.match_detail_points.
+    Stops when the API reports a winner_code.
     """
 
     def __init__(
@@ -53,26 +51,7 @@ class MatchWorker:
         )
         self._poll_interval = poll_interval
         self._running       = True
-        self._points_seen   = 0
-        self._last_point_processed: dict | None = None
 
-        self._match_metadata = {
-            "homeTeam":   {"name": self._player_a},
-            "awayTeam":   {"name": self._player_b},
-            "tournament": {"uniqueTournament": {"id": self._tournament_id}},
-        }
-
-        # Look up real p0 / archetype from PostgreSQL; falls back to neutral
-        # defaults automatically if the player is unknown or DB is unavailable.
-        self._player_a_dict = lookup_player(self._player_a, tour=self._category)
-        self._player_b_dict = lookup_player(self._player_b, tour=self._category)
-
-        self._engine = LiveMatch(
-            player_a=self._player_a_dict,
-            player_b=self._player_b_dict,
-            surface="hard",
-            best_of=3,
-        )
         self._feed   = TennisFeed(api_key=rapidapi_key)
         self._logger = MatchLogger()
         with _ACTIVE_IDS_LOCK:
@@ -104,91 +83,6 @@ class MatchWorker:
             )
 
     def _poll(self) -> None:
-        raw        = self._feed.get_point_by_point(self._match_id)
-        all_points = self._feed.translate_to_engine_format(raw)
-
-        if self._points_seen > 0:
-            is_shrinkage = len(all_points) < self._points_seen
-            is_mutation = (
-                not is_shrinkage
-                and self._last_point_processed is not None
-                and all_points[self._points_seen - 1] != self._last_point_processed
-            )
-            if is_shrinkage or is_mutation:
-                _log.warning(
-                    "API rollback/mutation detected for %s vs %s (match %s) — "
-                    "resetting engine and replaying all %d points.",
-                    self._player_a, self._player_b, self._match_id, len(all_points),
-                )
-                self._reset_engine()
-
-        new_points_count = len(all_points) - self._points_seen
-        new_points = all_points[self._points_seen:] if new_points_count > 0 else []
-
-        for pt in new_points:
-            if self._engine._match_over:
-                if not self._api_confirms_finished():
-                    _log.warning(
-                        "engine declared %s vs %s finished but API shows match still live. Resetting engine.",
-                        self._player_a, self._player_b,
-                    )
-                    self._reset_engine()
-                    break
-                _log.info(
-                    "%s vs %s — match complete, stopping.",
-                    self._player_a, self._player_b,
-                )
-                with _ACTIVE_IDS_LOCK:
-                    ACTIVE_MATCH_IDS.discard(self._match_id)
-                self._running = False
-                return
-
-            try:
-                self._logger.log_raw_point(
-                    match_id=self._match_id,
-                    player_a=self._player_a,
-                    player_b=self._player_b,
-                    point_dict=pt,
-                    point_num=self._points_seen,
-                    tournament_name=self._tournament_name,
-                    category=self._category,
-                )
-            except Exception as exc:
-                _log.warning("log_raw_point error: %s", exc)
-
-            winner_engine  = "A" if pt["point_winner"] == "home" else "B"
-            serving_engine = "A" if pt["server"]       == "home" else "B"
-
-            result = self._engine.process_point({
-                "winner": winner_engine,
-                "serving": serving_engine,
-            })
-
-            try:
-                self._logger.log_processed_state(
-                    match_id=self._match_id,
-                    player_a=self._player_a,
-                    player_b=self._player_b,
-                    point_dict=pt,
-                    prob_output=result,
-                    last_odds=None,
-                    point_num=self._points_seen,
-                    tournament_name=self._tournament_name,
-                    category=self._category,
-                )
-            except Exception as exc:
-                _log.warning("log_processed_state error: %s", exc)
-
-            self._last_point_processed = pt
-            self._points_seen += 1
-
-        _log.debug(
-            "%s vs %s — %d new points processed",
-            self._player_a, self._player_b, len(new_points),
-        )
-
-        # Always fetch and log match detail snapshot, then refresh processed points.
-        # This keeps live_processed.points current even on cycles with no new points.
         polled_at = datetime.now(timezone.utc)
         try:
             raw_detail = self._feed.get_match_detail(self._match_id)
@@ -200,10 +94,7 @@ class MatchWorker:
                 tournament_name=self._tournament_name,
                 category=self._category,
             )
-            self._logger.log_match_detail(
-                parsed_detail,
-                polled_at=polled_at,
-            )
+            self._logger.log_match_detail(parsed_detail, polled_at=polled_at)
         except Exception as exc:
             _log.warning(
                 "match_detail fetch/log error for %s vs %s: %s",
@@ -220,39 +111,21 @@ class MatchWorker:
                     self._player_a, self._player_b, self._match_id, exc,
                 )
 
-        if parsed_detail is not None and self._points_seen > 0:
-            try:
-                self._logger.upsert_processed_points(
-                    match_id=self._match_id,
-                    player_a=self._player_a,
-                    player_b=self._player_b,
-                    match_detail=parsed_detail,
+            if parsed_detail.get("winner_code"):
+                _log.info(
+                    "%s vs %s (match %s) — complete (winner_code=%s), stopping worker.",
+                    self._player_a, self._player_b, self._match_id,
+                    parsed_detail["winner_code"],
                 )
-            except Exception as exc:
-                _log.warning(
-                    "upsert_processed_points error for %s vs %s: %s",
-                    self._player_a, self._player_b, exc,
-                )
+                with _ACTIVE_IDS_LOCK:
+                    ACTIVE_MATCH_IDS.discard(self._match_id)
+                self._running = False
+                return
 
-    def _api_confirms_finished(self) -> bool:
-        """Return True only when this match_id is gone from the live feed."""
-        try:
-            live_events = self._feed.get_live_matches_raw()
-            return not any(e.get("id") == self._match_id for e in live_events)
-        except Exception:
-            return False  # can't verify → assume still live
-
-    def _reset_engine(self) -> None:
-        """Rebuild the engine and rewind points_seen so next poll replays all points."""
-        # Reuse the already-looked-up player dicts (cached by lookup_player).
-        self._engine = LiveMatch(
-            player_a=self._player_a_dict,
-            player_b=self._player_b_dict,
-            surface="hard",
-            best_of=3,
+        _log.debug(
+            "%s vs %s — match detail polled",
+            self._player_a, self._player_b,
         )
-        self._points_seen = 0
-        self._last_point_processed = None
 
     def stop(self) -> None:
         self._running = False

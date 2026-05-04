@@ -86,14 +86,121 @@ def _safe_query(conn, sql: str, params=None) -> list[dict]:
 # Routes
 # ---------------------------------------------------------------------------
 
-_PROCESSED_POINT_COLS = (
-    "match_id, player_a, player_b, "
-    "set_num, game_num, point_num, "
-    "home_point, away_point, server, point_winner, "
-    "is_ace, is_double_fault, has_gap, "
-    "home_sets_won, away_sets_won, home_games_won, away_games_won, "
-    "tournament_name, category, last_updated"
-)
+_SCORE_RANK: dict[str, int] = {"0": 0, "15": 1, "30": 2, "40": 3, "AD": 4}
+
+
+def _enrich_detail_points(rows: list[dict], first_server: str = "home") -> list[dict]:
+    """Convert match_detail_points rows into point-level rows for the dashboard.
+
+    Each row in match_detail_points represents one unique score state (one
+    point-in-progress snapshot). This function:
+      - Assigns set_num, game_num, point_num
+      - Derives server from game parity (who served game 1 = first_server)
+      - Derives point_winner from score transitions between consecutive rows
+      - Retroactively fixes the last row of each game when a game boundary is
+        detected (the game-winning point transitions directly to 0-0 in the
+        next game, so we derive the winner from which games_count increased)
+
+    Player A = home, Player B = away throughout.
+    """
+    if not rows:
+        return []
+
+    sorted_rows = sorted(rows, key=lambda r: str(r.get("polled_at") or ""))
+
+    result: list[dict] = []
+    prev: dict | None = None
+    prev_game_key: tuple | None = None
+    prev_home_g: int = 0
+    prev_away_g: int = 0
+    prev_home_sets: int = 0
+    prev_away_sets: int = 0
+
+    for row in sorted_rows:
+        home_sets = row.get("home_sets_won") or 0
+        away_sets = row.get("away_sets_won") or 0
+        set_num = home_sets + away_sets + 1
+
+        home_g = row.get("home_current_games") or 0
+        away_g = row.get("away_current_games") or 0
+
+        if home_g == 6 and away_g == 6:
+            game_num = 13
+        else:
+            game_num = home_g + away_g + 1
+
+        home_pt = str(row.get("home_current_point") or "0")
+        away_pt = str(row.get("away_current_point") or "0")
+
+        prev_set_games = 0
+        for s in range(1, set_num):
+            prev_set_games += (row.get(f"home_set{s}_games") or 0) + (row.get(f"away_set{s}_games") or 0)
+        total_before = prev_set_games + home_g + away_g
+
+        if total_before % 2 == 0:
+            server = first_server
+        else:
+            server = "away" if first_server == "home" else "home"
+
+        game_key = (set_num, game_num)
+
+        point_winner = None
+        if prev is not None and prev_game_key == game_key:
+            ph = _SCORE_RANK.get(str(prev.get("home_current_point") or "0"), 0)
+            pa = _SCORE_RANK.get(str(prev.get("away_current_point") or "0"), 0)
+            ch = _SCORE_RANK.get(home_pt, 0)
+            ca = _SCORE_RANK.get(away_pt, 0)
+
+            if ch > ph or ca < pa:
+                point_winner = "home"
+            elif ca > pa or ch < ph:
+                point_winner = "away"
+        elif prev is not None and prev_game_key != game_key and result:
+            if home_sets == prev_home_sets and away_sets == prev_away_sets:
+                if home_g > prev_home_g:
+                    result[-1]["point_winner"] = "home"
+                elif away_g > prev_away_g:
+                    result[-1]["point_winner"] = "away"
+            else:
+                prev_s = prev_game_key[0]
+                prev_s_total_h = row.get(f"home_set{prev_s}_games") or 0
+                prev_s_total_a = row.get(f"away_set{prev_s}_games") or 0
+                if prev_s_total_h > prev_home_g:
+                    result[-1]["point_winner"] = "home"
+                elif prev_s_total_a > prev_away_g:
+                    result[-1]["point_winner"] = "away"
+
+        result.append({
+            "point_num":       len(result),
+            "match_id":        row.get("match_id"),
+            "player_a":        row.get("player_a"),
+            "player_b":        row.get("player_b"),
+            "set_num":         set_num,
+            "game_num":        game_num,
+            "home_point":      home_pt,
+            "away_point":      away_pt,
+            "server":          server,
+            "point_winner":    point_winner,
+            "home_sets_won":   home_sets,
+            "away_sets_won":   away_sets,
+            "home_games_won":  home_g,
+            "away_games_won":  away_g,
+            "is_ace":          False,
+            "is_double_fault": False,
+            "has_gap":         False,
+            "tournament_name": row.get("tournament_name"),
+            "category":        row.get("category"),
+            "last_updated":    row.get("polled_at"),
+        })
+
+        prev = row
+        prev_game_key = game_key
+        prev_home_g = home_g
+        prev_away_g = away_g
+        prev_home_sets = home_sets
+        prev_away_sets = away_sets
+
+    return result
 
 
 @app.get("/matches")
@@ -101,54 +208,33 @@ def list_matches():
     conn = _conn()
     try:
         rows = _safe_query(conn, """
-            WITH set_detail AS (
-                SELECT
-                    match_id,
-                    set_num,
-                    MAX(home_games_won) AS hg,
-                    MAX(away_games_won) AS ag
-                FROM live_processed.points
-                WHERE set_num IS NOT NULL
-                GROUP BY match_id, set_num
-            ),
-            set_arrays AS (
-                SELECT
-                    match_id,
-                    array_agg(hg ORDER BY set_num) AS set_scores_a,
-                    array_agg(ag ORDER BY set_num) AS set_scores_b
-                FROM set_detail
-                GROUP BY match_id
-            ),
-            match_summary AS (
-                SELECT
-                    match_id,
-                    MAX(player_a)        AS player_a,
-                    MAX(player_b)        AS player_b,
-                    MAX(tournament_name) AS tournament_name,
-                    UPPER(MAX(category)) AS category,
-                    MAX(last_updated)    AS last_updated,
-                    MAX(home_sets_won)   AS sets_a,
-                    MAX(away_sets_won)   AS sets_b
-                FROM live_processed.points
-                GROUP BY match_id
+            WITH latest AS (
+                SELECT DISTINCT ON (match_id) *
+                FROM live_processed.match_detail_points
+                ORDER BY match_id, polled_at DESC
             )
             SELECT
-                ms.match_id,
-                ms.player_a,
-                ms.player_b,
-                ms.tournament_name,
-                ms.category,
-                to_char(ms.last_updated, 'YYYY-MM-DD') AS match_date,
-                ms.sets_a,
-                ms.sets_b,
-                sa.set_scores_a,
-                sa.set_scores_b
-            FROM match_summary ms
-            LEFT JOIN set_arrays sa ON ms.match_id = sa.match_id
-            ORDER BY ms.last_updated DESC
+                match_id,
+                player_a,
+                player_b,
+                tournament_name,
+                UPPER(category)                    AS category,
+                to_char(polled_at, 'YYYY-MM-DD')   AS match_date,
+                home_sets_won                      AS sets_a,
+                away_sets_won                      AS sets_b,
+                ARRAY_REMOVE(
+                    ARRAY[home_set1_games, home_set2_games, home_set3_games],
+                    NULL
+                )                                  AS set_scores_a,
+                ARRAY_REMOVE(
+                    ARRAY[away_set1_games, away_set2_games, away_set3_games],
+                    NULL
+                )                                  AS set_scores_b
+            FROM latest
+            ORDER BY polled_at DESC
         """)
         for row in rows:
-            row['is_final'] = True
+            row["is_final"] = True
     finally:
         conn.close()
     return rows
@@ -160,22 +246,24 @@ def list_live_matches():
         return []
     conn = _conn()
     try:
-        # DISTINCT ON (match_id) ordered by point_num DESC gives the latest
-        # processed point per match.
         result = _safe_query(conn, """
-            WITH latest AS (
-              SELECT DISTINCT ON (match_id)
-                match_id, player_a, player_b,
-                home_sets_won, away_sets_won,
-                home_games_won, away_games_won,
-                home_point, away_point, server,
-                tournament_name, category,
-                last_updated AS last_seen
-              FROM live_processed.points
-              WHERE match_id = ANY(%s)
-              ORDER BY match_id, point_num DESC
-            )
-            SELECT * FROM latest ORDER BY last_seen DESC NULLS LAST
+            SELECT DISTINCT ON (match_id)
+                match_id,
+                player_a,
+                player_b,
+                home_sets_won,
+                away_sets_won,
+                home_current_games  AS home_games_won,
+                away_current_games  AS away_games_won,
+                home_current_point  AS home_point,
+                away_current_point  AS away_point,
+                NULL::VARCHAR       AS server,
+                tournament_name,
+                category,
+                polled_at           AS last_seen
+            FROM live_processed.match_detail_points
+            WHERE match_id = ANY(%s)
+            ORDER BY match_id, polled_at DESC
         """, [list(ACTIVE_MATCH_IDS)])
     finally:
         conn.close()
@@ -190,15 +278,26 @@ def list_live_matches():
 def get_match(match_id: int):
     conn = _conn()
     try:
-        result = _safe_query(conn, f"""
-            SELECT {_PROCESSED_POINT_COLS}
-            FROM live_processed.points
+        rows = _safe_query(conn, """
+            SELECT
+                match_id, player_a, player_b, polled_at,
+                home_sets_won, away_sets_won,
+                home_set1_games, away_set1_games,
+                home_set2_games, away_set2_games,
+                home_set3_games, away_set3_games,
+                home_current_games, away_current_games,
+                home_current_point, away_current_point,
+                winner_code, tournament_name, category
+            FROM live_processed.match_detail_points
             WHERE match_id = %s
-            ORDER BY point_num
+            ORDER BY
+                home_sets_won, away_sets_won,
+                home_current_games, away_current_games,
+                polled_at
         """, [match_id])
     finally:
         conn.close()
-    return result
+    return _enrich_detail_points(rows)
 
 
 @app.get("/match/{match_id}/latest")
