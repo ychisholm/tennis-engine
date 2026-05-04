@@ -466,6 +466,7 @@ function enrichForPlayer(pts, player) {
 function groupByGame(points) {
   const map = new Map();
   for (const pt of points) {
+    if (pt.is_complete_marker) continue;
     const key = `${pt.set_num}-${pt.game_num}`;
     if (!map.has(key)) map.set(key, { set: pt.set_num, game: pt.game_num, points: [] });
     map.get(key).points.push(pt);
@@ -473,37 +474,41 @@ function groupByGame(points) {
   return [...map.values()].sort((a,b) => a.set !== b.set ? a.set-b.set : a.game-b.game);
 }
 
-// Read the cumulative scoreboard directly from the pre-computed columns on
-// the latest visible point. completedSets is rebuilt by taking each
-// non-current set's last point's game counts (per-set counters reset on
-// set boundaries in live_processed.points).
+// Build the cumulative scoreboard from the latest row's per-set game columns.
+// The latest row carries the full state at the time of the last poll: how
+// many sets each side has won, the per-set game totals (set1/set2/set3),
+// the current set's running games, and the live point score. Reading the
+// per-set columns directly means we still reconstruct the score correctly
+// when polling started mid-match (so set 1 has no captured points) or when
+// the match has ended (the is_complete_marker row carries the final tally).
 function deriveScoreFromColumns(pts) {
   if (!pts.length) return null;
   const latest = pts[pts.length - 1];
-  const latestSet = latest.set_num;
-
-  const lastBySet = new Map();
-  for (const pt of pts) {
-    if (pt.set_num != null) lastBySet.set(pt.set_num, pt);
-  }
+  const setsA  = latest.home_sets_won ?? 0;
+  const setsB  = latest.away_sets_won ?? 0;
+  const isFinal = !!latest.is_complete_marker
+    || (latest.status && String(latest.status).toLowerCase() === 'finished');
 
   const completedSets = [];
-  const sortedSets = [...lastBySet.keys()].sort((a, b) => a - b);
-  for (const s of sortedSets) {
-    if (s === latestSet) continue;
-    const p = lastBySet.get(s);
-    completedSets.push({
-      h: p.home_games_won ?? 0,
-      a: p.away_games_won ?? 0,
-    });
+  for (let s = 1; s <= 5; s++) {
+    const h = latest[`home_set${s}_games`];
+    const a = latest[`away_set${s}_games`];
+    if (h == null && a == null) break;
+    const isCompleted = s <= (setsA + setsB);
+    if (isCompleted) {
+      completedSets.push({ h: h ?? 0, a: a ?? 0 });
+    } else {
+      break;
+    }
   }
 
   return {
-    setsA:  latest.home_sets_won  ?? 0,
-    setsB:  latest.away_sets_won  ?? 0,
+    setsA,
+    setsB,
     gamesA: latest.home_games_won ?? 0,
     gamesB: latest.away_games_won ?? 0,
     completedSets,
+    isFinal,
   };
 }
 
@@ -556,6 +561,9 @@ function inferGameWinner(hp, ap, pw, hasNext) {
 }
 
 function computeMatchStats(points) {
+  if (!points.length) return null;
+  // Exclude the post-match summary row from per-point counts.
+  points = points.filter(p => !p.is_complete_marker);
   if (!points.length) return null;
   const allGames = groupByGame(points);
   const result = {};
@@ -974,7 +982,11 @@ function ResultsTab({ onSelect }) {
 
 // ─── Match Detail tab ───────────────────────────────────────────────────────
 
-function HeroCard({ match, latest, sc, viewPlayer, setViewPlayer, isScrubbing, isFinal }) {
+function HeroCard({ match, latest, sc, viewPlayer, setViewPlayer, isScrubbing, isFinal: isFinalProp }) {
+  // sc.isFinal is derived from the data (complete_marker / status='finished').
+  // Prefer it when available so the header reflects what was actually polled,
+  // not just what the parent inferred from the match list payload.
+  const isFinal = sc?.isFinal ?? isFinalProp;
   const flip    = viewPlayer==='B';
   const modelP  = !latest ? null : (flip ? (latest.model_prob_a     !=null ? 1-latest.model_prob_a     : null) : latest.model_prob_a);
   const bookieP = !latest ? null : (flip ? (latest.bookmaker_prob_a !=null ? 1-latest.bookmaker_prob_a : null) : latest.bookmaker_prob_a);

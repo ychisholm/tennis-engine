@@ -94,10 +94,11 @@ def _enrich_detail_points(rows: list[dict], first_server: str = "home") -> list[
     the column — derivation lives in the logger so all consumers see the
     same value.
 
-    Rows with status='finished' represent the post-match snapshot whose
-    home_sets_won/away_sets_won has already advanced to the final tally
-    (creating a phantom set N+1 row); these are excluded from the dashboard
-    point-by-point view. Final score is shown via /matches.
+    Rows with status='finished' represent the post-match snapshot. They
+    carry the authoritative final tally (sets/per-set games) but are flagged
+    with is_complete_marker=True so the point-by-point view skips them.
+    The score header reads the latest row's per-set game columns and
+    home_sets_won/away_sets_won directly, so it sees the final state.
 
     Player A = home, Player B = away throughout.
     """
@@ -108,12 +109,17 @@ def _enrich_detail_points(rows: list[dict], first_server: str = "home") -> list[
 
     result: list[dict] = []
     for row in sorted_rows:
-        if (row.get("status") or "").lower() == "finished":
-            continue
+        status = (row.get("status") or "").lower()
+        is_complete_marker = status == "finished"
 
         home_sets = row.get("home_sets_won") or 0
         away_sets = row.get("away_sets_won") or 0
-        set_num = home_sets + away_sets + 1
+        # For the complete marker we don't want to invent a phantom set N+1.
+        # Cap set_num to the last played set so PBP grouping stays consistent
+        # even when this row sneaks past a frontend filter.
+        set_num = home_sets + away_sets + (0 if is_complete_marker else 1)
+        if set_num < 1:
+            set_num = 1
 
         home_g = row.get("home_current_games") or 0
         away_g = row.get("away_current_games") or 0
@@ -134,29 +140,58 @@ def _enrich_detail_points(rows: list[dict], first_server: str = "home") -> list[
             server = "away" if first_server == "home" else "home"
 
         result.append({
-            "point_num":       len(result),
-            "match_id":        row.get("match_id"),
-            "player_a":        row.get("player_a"),
-            "player_b":        row.get("player_b"),
-            "set_num":         set_num,
-            "game_num":        game_num,
-            "home_point":      str(row.get("home_current_point") or "0"),
-            "away_point":      str(row.get("away_current_point") or "0"),
-            "server":          server,
-            "point_winner":    row.get("point_winner"),
-            "home_sets_won":   home_sets,
-            "away_sets_won":   away_sets,
-            "home_games_won":  home_g,
-            "away_games_won":  away_g,
-            "is_ace":          False,
-            "is_double_fault": False,
-            "has_gap":         False,
-            "tournament_name": row.get("tournament_name"),
-            "category":        row.get("category"),
-            "last_updated":    row.get("polled_at"),
+            "point_num":          len(result),
+            "match_id":           row.get("match_id"),
+            "player_a":           row.get("player_a"),
+            "player_b":           row.get("player_b"),
+            "set_num":            set_num,
+            "game_num":           game_num,
+            "home_point":         str(row.get("home_current_point") or "0"),
+            "away_point":         str(row.get("away_current_point") or "0"),
+            "server":             server,
+            "point_winner":       row.get("point_winner"),
+            "home_sets_won":      home_sets,
+            "away_sets_won":      away_sets,
+            "home_games_won":     home_g,
+            "away_games_won":     away_g,
+            "home_set1_games":    row.get("home_set1_games"),
+            "away_set1_games":    row.get("away_set1_games"),
+            "home_set2_games":    row.get("home_set2_games"),
+            "away_set2_games":    row.get("away_set2_games"),
+            "home_set3_games":    row.get("home_set3_games"),
+            "away_set3_games":    row.get("away_set3_games"),
+            "status":             row.get("status"),
+            "is_complete_marker": is_complete_marker,
+            "is_ace":             False,
+            "is_double_fault":    False,
+            "has_gap":            False,
+            "tournament_name":    row.get("tournament_name"),
+            "category":           row.get("category"),
+            "last_updated":       row.get("polled_at"),
         })
 
     return result
+
+
+def _trim_unplayed_sets(set_a: list, set_b: list, sets_a: int, sets_b: int, is_final: bool) -> tuple[list, list]:
+    """Strip trailing set slots that were never played.
+
+    Keeps a slot if either side has any games in it OR (for in-progress matches)
+    it is the currently-being-played set. For finished matches, only sets where
+    at least one game was won are kept.
+    """
+    sa = list(set_a or [])
+    sb = list(set_b or [])
+    current_idx = (sets_a or 0) + (sets_b or 0)
+    keep_through = -1
+    for i in range(max(len(sa), len(sb))):
+        a_g = sa[i] if i < len(sa) else 0
+        b_g = sb[i] if i < len(sb) else 0
+        has_games = (a_g or 0) > 0 or (b_g or 0) > 0
+        is_current_in_progress = (not is_final) and i == current_idx
+        if has_games or is_current_in_progress:
+            keep_through = i
+    return sa[:keep_through + 1], sb[:keep_through + 1]
 
 
 @app.get("/matches")
@@ -176,21 +211,30 @@ def list_matches():
                 tournament_name,
                 UPPER(category)                    AS category,
                 to_char(polled_at, 'YYYY-MM-DD')   AS match_date,
+                status,
+                winner_code,
                 home_sets_won                      AS sets_a,
                 away_sets_won                      AS sets_b,
-                ARRAY_REMOVE(
-                    ARRAY[home_set1_games, home_set2_games, home_set3_games],
-                    NULL
-                )                                  AS set_scores_a,
-                ARRAY_REMOVE(
-                    ARRAY[away_set1_games, away_set2_games, away_set3_games],
-                    NULL
-                )                                  AS set_scores_b
+                ARRAY[home_set1_games, home_set2_games, home_set3_games] AS set_scores_a,
+                ARRAY[away_set1_games, away_set2_games, away_set3_games] AS set_scores_b
             FROM latest
             ORDER BY polled_at DESC
         """)
         for row in rows:
-            row["is_final"] = True
+            is_final = (
+                (row.get("status") or "").lower() == "finished"
+                or row.get("winner_code") is not None
+            )
+            sa, sb = _trim_unplayed_sets(
+                row.get("set_scores_a"),
+                row.get("set_scores_b"),
+                row.get("sets_a") or 0,
+                row.get("sets_b") or 0,
+                is_final,
+            )
+            row["set_scores_a"] = sa
+            row["set_scores_b"] = sb
+            row["is_final"] = is_final
     finally:
         conn.close()
     return rows
