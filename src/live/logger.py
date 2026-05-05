@@ -119,8 +119,20 @@ _SETUP_STMTS = [
         winner_code           INTEGER,
         tournament_name       VARCHAR,
         category              VARCHAR,
-        PRIMARY KEY (match_id, home_sets_won, away_sets_won, home_current_games, away_current_games, home_current_point, away_current_point)
+        PRIMARY KEY (match_id, polled_at)
     )
+    """,
+    # Migrate existing deployments off the old score-keyed PK. The score tuple
+    # alone collapses legitimate deuce oscillation (40-40 ↔ AD-40 ↔ 40-AD) into
+    # a single row; (match_id, polled_at) is row-unique without that loss.
+    "ALTER TABLE live_processed.match_detail_points DROP CONSTRAINT IF EXISTS match_detail_points_pkey",
+    "ALTER TABLE live_processed.match_detail_points ADD CONSTRAINT match_detail_points_pkey PRIMARY KEY (match_id, polled_at)",
+    """
+    CREATE INDEX IF NOT EXISTS match_detail_points_score_idx
+      ON live_processed.match_detail_points
+      (match_id, home_sets_won, away_sets_won,
+       home_current_games, away_current_games,
+       home_current_point, away_current_point)
     """,
     "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS point_winner VARCHAR",
     "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS home_sets_won INTEGER",
@@ -243,8 +255,7 @@ INSERT INTO live_processed.match_detail_points (
     home_current_point, away_current_point,
     point_winner, winner_code, tournament_name, category
 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-ON CONFLICT (match_id, home_sets_won, away_sets_won, home_current_games, away_current_games, home_current_point, away_current_point)
-DO NOTHING
+ON CONFLICT (match_id, polled_at) DO NOTHING
 """
 
 # "A" is what the API actually returns for advantage; "AD" kept for safety.
@@ -707,6 +718,34 @@ class MatchLogger:
                 if cur.fetchone():
                     return
 
+            # Skip idempotent repolls: if the most recent row for this match
+            # has the identical score state, the 15s poller is just observing
+            # an unchanged game. Compare against the *most recent* row only —
+            # a match against an earlier row (e.g. deuce returning after AD)
+            # is a real new point and must be inserted.
+            cur.execute(
+                """
+                SELECT home_sets_won, away_sets_won,
+                       home_current_games, away_current_games,
+                       home_current_point, away_current_point
+                FROM live_processed.match_detail_points
+                WHERE match_id = %s
+                ORDER BY polled_at DESC
+                LIMIT 1
+                """,
+                [match_id_int],
+            )
+            latest = cur.fetchone()
+            if latest and (
+                latest[0] == home_sets
+                and latest[1] == away_sets
+                and latest[2] == home_current_games
+                and latest[3] == away_current_games
+                and latest[4] == home_pt_s
+                and latest[5] == away_pt_s
+            ):
+                return
+
             curr_state = {
                 "home_sets_won": home_sets,
                 "away_sets_won": away_sets,
@@ -860,11 +899,11 @@ class MatchLogger:
         is unavailable for a detected gap, has_gap=TRUE is set on the
         surrounding point_by_point rows and a warning is logged.
 
-        KNOWN LIMITATION (deuce states): match_detail_points is keyed on
-        (set_num, home_games, away_games, home_point, away_point), so multiple
-        deuce cycles within the same game (40-40 → AD-40 → 40-40 → AD-40 ...)
-        collapse to at most one row per state. Gap-fill in deuce-heavy games
-        is necessarily incomplete; the data is not available to reconstruct.
+        Deuce cycles: match_detail_points is keyed on (match_id, polled_at),
+        so 40-40 ↔ AD-40 ↔ 40-AD oscillations are retained as distinct rows
+        and gap-fill works through them. The remaining limitation is the 15s
+        poll cadence: deuce points decided faster than the poll interval can
+        still go unobserved, but that's a sampling limit, not a dedup loss.
         """
         match_id_int = int(match_id)
         cur = self._conn.cursor()
@@ -946,9 +985,6 @@ class MatchLogger:
             else:
                 prev_key = _score_sort_key(prev["home_point"], prev["away_point"])
                 curr_key = _score_sort_key(curr["home_point"], curr["away_point"])
-                if prev_key == 6 and curr_key == 6:
-                    # Deuce ↔ AD cycle — see KNOWN LIMITATION above.
-                    continue
                 if curr_key > prev_key + 1:
                     gaps.append((i - 1, i))
 
