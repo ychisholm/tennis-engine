@@ -1,0 +1,80 @@
+======================================================================
+ML GAME-LEVEL DATASET BUILD REPORT
+======================================================================
+
+Total rows: 120,718
+Distinct matches: 4,648
+Distinct sets:    12,223
+
+Rows by split:
+  test         34,020
+  train        86,698
+
+set_winner_is_A distribution:
+  0: 58,838 (48.7%)
+  1: 61,880 (51.3%)
+
+Surface distribution:
+  hard         59,618
+  unknown      26,832
+  clay         22,747
+  grass        11,521
+
+Rows by set_number:
+  set 1: 46,060
+  set 2: 45,334
+  set 3: 21,195
+  set 4: 5,512
+  set 5: 2,617
+
+match_id_map:
+  rows:               7,160
+  match_id_int range: [1,000,000,000, 1,000,007,159]
+  1B offset confirmed: True
+
+game_character distribution:
+  clean_hold       74,135  ( 61.4%)
+  routine_break    15,116  ( 12.5%)
+  pressure_hold    12,494  ( 10.3%)
+  gritty_break      9,595  (  7.9%)
+  routine_hold      9,378  (  7.8%)
+
+Mean of new count features:
+  bp_faced_by_server       0.5022
+  bp_saved_by_server       0.3072
+  deuce_count              0.4104
+  pressure_points_played   1.1154
+
+server_max_deficit distribution:
+  deficit=0:   61,902  ( 51.3%)
+  deficit=1:   36,006  ( 29.8%)
+  deficit=2:   16,699  ( 13.8%)
+  deficit=3:    6,111  (  5.1%)
+
+first_point_server_won rate: 0.6443 (64.43%)
+
+Null check:
+  All columns clean — zero nulls.
+
+Parquet written to: data/processed/ml_game_level.parquet
+DuckDB tables:      core.match_id_map, core.ml_game_level
+
+======================================================================
+TEST RESULTS (tests/test_ml_game_level.py)
+======================================================================
+  test_no_nulls_in_any_column                      PASSED
+  test_set_winner_constant_within_set              PASSED
+  test_games_sum_equals_game_number                PASSED
+  test_game_number_starts_at_one_and_increments    PASSED
+  test_held_and_break_mutually_exclusive_and_exhaustive PASSED
+  test_every_set_has_valid_final_score             PASSED
+  test_split_only_train_or_test                    PASSED
+  test_is_tiebreak_only_at_six_six                 PASSED
+  test_match_id_int_integrity                      PASSED
+  test_new_features_have_no_nulls                  PASSED
+  test_new_feature_value_bounds                    PASSED
+  test_game_character_distribution                 PASSED
+  test_game_character_consistency                  PASSED
+
+  pytest summary: 13 passed
+  pytest exit code: 0

@@ -1,0 +1,232 @@
+================================================================================
+TENNIS ENGINE — DUCKDB DATA AUDIT REPORT
+Generated: 2026-05-03
+Database: data/processed/tennis.duckdb
+================================================================================
+
+────────────────────────────────────────────────────────────────────────────────
+1. CHARTING SCHEMA — TABLES AND ROW COUNTS
+────────────────────────────────────────────────────────────────────────────────
+
+Available schemas: charting, core, live_processed, live_raw, main, rankings
+
+Men's tables:
+  charting_m_matches                              7,192 rows   (match metadata)
+  charting_m_points_2010s                       351,112 rows
+  charting_m_points_2020s                       511,903 rows
+  charting_m_points_to_2009                     358,847 rows
+  charting_m_stats_keypointsreturn               57,488 rows
+  charting_m_stats_keypointsserve                57,488 rows
+  charting_m_stats_netpoints                     56,440 rows
+  charting_m_stats_overview                      54,122 rows
+  charting_m_stats_rally                         91,965 rows
+  charting_m_stats_returndepth                  256,739 rows
+  charting_m_stats_returnoutcomes               295,025 rows
+  charting_m_stats_serve_basics                  43,109 rows
+  charting_m_stats_servebasics                   43,109 rows
+  charting_m_stats_servedirection                43,109 rows
+  charting_m_stats_serveinfluence                28,747 rows
+  charting_m_stats_shotdirection                 57,044 rows
+  charting_m_stats_shotdiroutcomes              166,122 rows
+  charting_m_stats_shottypes                    335,001 rows
+  charting_m_stats_snv                           48,580 rows
+  charting_m_stats_svbreaksplit                 156,766 rows
+  charting_m_stats_svbreaktotal                 156,766 rows
+
+Women's tables:
+  charting_w_matches                              3,815 rows
+  charting_w_points_2010s                       177,569 rows
+  charting_w_points_2020s                       300,677 rows
+  charting_w_points_to_2009                      55,079 rows
+  charting_w_stats_* (similar aggregated stats tables)
+
+NOTE: The raw charting tables are decade-partitioned. The canonical point-by-point
+table is core.atp_points (union of all decades, 1,221,862 rows), and the enriched
+version is core.atp_points_enhanced (same row count, 36 columns).
+
+────────────────────────────────────────────────────────────────────────────────
+2. MAIN POINT-BY-POINT TABLE: core.atp_points (1,221,862 rows)
+────────────────────────────────────────────────────────────────────────────────
+
+  #    Column       Type        Nullable   Notes
+  ───  ───────────  ──────────  ────────   ─────────────────────────────────────────
+  1    match_id     VARCHAR     YES        e.g. '20191124-M-Davis_Cup_Finals-F-Nadal-Shapovalov'
+  2    Pt           BIGINT      YES        Point number within match
+  3    Set1         BIGINT      YES        Sets won by player 1
+  4    Set2         BIGINT      YES        Sets won by player 2
+  5    Gm1          BIGINT      YES        Games won by player 1 in current set
+  6    Gm2          BIGINT      YES        Games won by player 2 in current set
+  7    Pts          VARCHAR     YES        Game score, e.g. '0-0', '15-0', '30-15', 'AD-40'
+  8    Gm#          BIGINT      YES        Game number within match
+  9    TbSet        BOOLEAN     YES        True if match uses final-set tiebreak rule
+  10   Svr          BIGINT      YES        Server: 1 = player 1, 2 = player 2
+  11   1st          VARCHAR     YES        Rally encoding for 1st serve point
+  12   2nd          VARCHAR     YES        Rally encoding for 2nd serve point (null if 1st in)
+  13   Notes        VARCHAR     YES        Free-text notes (90.9% null)
+  14   PtWinner     BIGINT      YES        Point winner: 1 = player 1, 2 = player 2
+
+────────────────────────────────────────────────────────────────────────────────
+3. DISTINCT MATCHES PER YEAR (extracted from match_id prefix)
+────────────────────────────────────────────────────────────────────────────────
+
+  Year    Matches
+  ──────  ───────
+  2010         91
+  2011        111
+  2012        140
+  2013        118
+  2014        172
+  2015        292
+  2016        180
+  2017        238
+  2018        250
+  2019        605
+  2020        164
+  2021        366
+  2022        633
+  2023        618
+  2024        767
+  2025        566
+  ──────  ───────
+  Total:    4,714 distinct matches (2010-2025)
+
+Coverage note: 2020 dip is COVID. Strong coverage from 2019+; pre-2015 is thin.
+
+────────────────────────────────────────────────────────────────────────────────
+4. NULL RATES — core.atp_points (1,221,862 rows)
+────────────────────────────────────────────────────────────────────────────────
+
+  Column       Null Count    Null %    Notes
+  ──────────   ──────────    ──────    ─────────────────────────────────────────
+  Notes         1,110,190    90.86%    Safe to ignore for ML
+  2nd             761,990    62.36%    Expected: null when 1st serve lands in
+  Gm1                   1     0.00%
+  Gm2                   2     0.00%
+  Gm#                   1     0.00%
+  TbSet                 1     0.00%
+  match_id              0     0.00%
+  Pt                    0     0.00%
+  Set1                  0     0.00%
+  Set2                  0     0.00%
+  Pts                   0     0.00%
+  Svr                   0     0.00%
+  1st                   0     0.00%
+  PtWinner              0     0.00%
+
+All core scoring columns (Svr, PtWinner, Pts, Set1/2, Gm1/2) are effectively
+complete. The 2nd column being 62% null is by design (1st serve in = no 2nd serve).
+
+────────────────────────────────────────────────────────────────────────────────
+5. SAMPLE ROWS — core.atp_points
+────────────────────────────────────────────────────────────────────────────────
+
+Match: 20191124-M-Davis_Cup_Finals-F-Rafael_Nadal-Denis_Shapovalov
+
+  Pt  Set1 Set2  Gm1 Gm2  Pts     Gm#  TbSet  Svr  1st            2nd                      PtWinner
+  ─── ─── ────  ─── ───  ──────  ───  ─────  ───  ─────────────  ──────────────────────── ────────
+  1   0   0     0   0    0-0     1    True   1    '4n'           '4b1b1b3n@'              1
+  2   0   0     0   0    15-0    1    True   1    '5n'           '5f28f2b1b1b2f3f3d@'     1
+  3   0   0     0   0    30-0    1    True   1    '4C'           None                     1
+  4   0   0     0   0    40-0    1    True   1    '4r2d#'        None                     1
+  5   0   0     1   0    0-0     2    True   2    '5d'           'c4b1b1d!@'              1
+
+Rally encoding: digits=shot direction, letters=shot type (f=forehand, b=backhand),
+@ = winner, # = unforced error, ! = forced error, n/d/w = serve to body/T/wide.
+
+────────────────────────────────────────────────────────────────────────────────
+6. FIELD DERIVABILITY FOR ML TRAINING DATASET
+────────────────────────────────────────────────────────────────────────────────
+
+  Field                          Available?  Source
+  ─────────────────────────────  ──────────  ────────────────────────────────────────────────────
+  Point winner identity          YES         PtWinner col (1=p1/server, 2=p2/returner) — both tables
+                                             server_won_point (bool) also in enhanced table
+  Server identity per point      YES         Svr (raw + enhanced); serving_player (name, enhanced)
+  Game score at each point       YES         Pts col ('0-0','15-0','30-15','AD-40') — raw table
+                                             score_before / p1_score_before also in enhanced
+  Set score at each point        YES         Set1 + Set2 integers — both tables
+                                             p1_score_after / p2_score_after strings in enhanced
+  Break point indicator          YES         is_break_point (bool) — enhanced table only
+                                             is_break_point_converted also in enhanced
+  Match date                     YES         match_date (DATE) — enhanced table
+                                             Parseable from 8-char prefix of match_id in raw
+
+  VERDICT: All 6 required fields are available. The enhanced table has them all
+  as clean, pre-computed columns. The raw table requires parsing match_id for the
+  date and computing is_break_point from game state (Pts + Svr columns).
+
+────────────────────────────────────────────────────────────────────────────────
+7. PLAYER CROSS-REFERENCE: CHARTING vs CORE.ATP_MATCHES
+────────────────────────────────────────────────────────────────────────────────
+
+  Distinct players in charting (Player 1 + Player 2 from charting_m_matches):   979
+  Distinct players in core.atp_matches (winner_name UNION loser_name):        4,373
+  Charting players matched by name in core.atp_matches:                          880  (89.9%)
+  Charting players NOT found in core.atp_matches by exact name:                   99  (10.1%)
+
+  The 99 unmatched are likely name format differences (e.g. "Rafael Nadal" vs
+  "R. Nadal"), WTA players incidentally charted in men's schema, or very new
+  players not yet in core tables. A fuzzy-match pass would recover most of these.
+
+  For p0 career baseline computation: 880/979 charting players (90%) have serve
+  statistics directly available in core.atp_matches. Full coverage is achievable
+  with a single name normalization step.
+
+────────────────────────────────────────────────────────────────────────────────
+8. ATP_POINTS_ENHANCED TABLE — BUILD RECOMMENDATION
+────────────────────────────────────────────────────────────────────────────────
+
+  Location:   core.atp_points_enhanced
+  Row count:  1,221,862  (identical to core.atp_points — 1:1 enrichment, no data loss)
+  Date range: 1960-05-29 to 2025-12-21
+
+  Columns (36 total — additions over raw table highlighted with *):
+    match_id               VARCHAR
+  * match_date             DATE        Clean date field
+  * tournament_name        VARCHAR
+  * player1_name           VARCHAR     Player identity resolved to name string
+  * player2_name           VARCHAR
+    Pt                     BIGINT
+    Set1, Set2             BIGINT      (same as raw)
+    Gm1, Gm2, Gm#          BIGINT      (same as raw)
+    TbSet                  BOOLEAN     (same as raw)
+    Svr                    BIGINT      (same as raw)
+  * score_before           VARCHAR     Full score string before the point
+  * p1_score_before/after  VARCHAR     Per-player score strings
+  * p2_score_before/after  VARCHAR
+  * serve_number           INTEGER     1 or 2
+    1st, 2nd               VARCHAR     (same rally encoding as raw)
+  * rally_length           BIGINT      Shot count
+  * is_ace                 BOOLEAN
+  * is_double_fault        BOOLEAN
+    PtWinner               BIGINT      (same as raw)
+  * point_sequence         VARCHAR     Normalized rally string
+    Notes                  VARCHAR
+  * point_outcome          VARCHAR     e.g. 'ace', 'winner', 'unforced_error'
+  * first_serve_in         BOOLEAN
+  * server_won_point       BOOLEAN     Cleaner than PtWinner==Svr check
+  * is_break_point         BOOLEAN     165,357 true / 1,056,505 false
+  * is_break_point_converted BOOLEAN
+  * serving_player         VARCHAR     Name string of server
+  * returning_player       VARCHAR     Name string of returner
+  * is_tiebreak            BOOLEAN
+
+  RECOMMENDATION: BUILD THE ML DATASET FROM core.atp_points_enhanced
+
+  Reasons:
+  1. Same row count as raw — no data is dropped in the enrichment step.
+  2. All 6 required ML fields are pre-computed and clean.
+  3. player1_name / player2_name / serving_player resolve the Svr=1/2 integer
+     ambiguity into real name strings — enables direct joins to core.atp_matches
+     for career serve stat lookups.
+  4. is_break_point, server_won_point, rally_length, point_outcome eliminate
+     manual derivation and parsing of the rally encoding strings.
+  5. match_date as a native DATE column simplifies time-window filtering.
+
+  The raw charting decade tables (charting_m_points_2010s, etc.) are only needed
+  if you want additional columns from the original MCP charting sheets that were
+  not carried through to the enhanced table.
+
+================================================================================
+END OF REPORT
+================================================================================

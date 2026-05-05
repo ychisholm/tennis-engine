@@ -244,10 +244,11 @@ INSERT INTO live_processed.match_detail_points (
     point_winner, winner_code, tournament_name, category
 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (match_id, home_sets_won, away_sets_won, home_current_games, away_current_games, home_current_point, away_current_point)
-DO UPDATE SET polled_at = EXCLUDED.polled_at
+DO NOTHING
 """
 
-_SCORE_RANK_LOGGER: dict[str, int] = {"0": 0, "15": 1, "30": 2, "40": 3, "AD": 4}
+# "A" is what the API actually returns for advantage; "AD" kept for safety.
+_SCORE_RANK_LOGGER: dict[str, int] = {"0": 0, "15": 1, "30": 2, "40": 3, "AD": 4, "A": 4}
 
 
 def _derive_point_winner(prev: dict, curr: dict) -> str | None:
@@ -801,7 +802,7 @@ class MatchLogger:
 
             # Retroactive: when this row begins a new game, the previous row
             # was the last point of the prior game. Assign its winner from
-            # which side's games count incremented.
+                # which side's games count incremented.
             retro = _retro_winner_for_prev_game(prev, curr_state)
             if retro and prev is not None:
                 # Only fill in when intra-game derivation couldn't compute one
