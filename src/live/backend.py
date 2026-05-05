@@ -213,6 +213,8 @@ def list_matches():
                 to_char(polled_at, 'YYYY-MM-DD')   AS match_date,
                 status,
                 winner_code,
+                country_a,
+                country_b,
                 home_sets_won                      AS sets_a,
                 away_sets_won                      AS sets_b,
                 ARRAY[home_set1_games, home_set2_games, home_set3_games] AS set_scores_a,
@@ -260,6 +262,8 @@ def list_live_matches():
                 NULL::VARCHAR       AS server,
                 tournament_name,
                 category,
+                country_a,
+                country_b,
                 polled_at           AS last_seen
             FROM live_processed.match_detail_points
             WHERE match_id = ANY(%s)
@@ -267,10 +271,15 @@ def list_live_matches():
         """, [list(ACTIVE_MATCH_IDS)])
     finally:
         conn.close()
+    # Fall back to in-memory COUNTRY_MAP for matches whose first poll hasn't
+    # yet persisted country to the DB.
     for row in result:
-        ca, cb = COUNTRY_MAP.get(row["match_id"], (None, None))
-        row["country_a"] = ca
-        row["country_b"] = cb
+        if row.get("country_a") is None or row.get("country_b") is None:
+            ca, cb = COUNTRY_MAP.get(row["match_id"], (None, None))
+            if row.get("country_a") is None:
+                row["country_a"] = ca
+            if row.get("country_b") is None:
+                row["country_b"] = cb
     return result
 
 

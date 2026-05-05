@@ -147,6 +147,8 @@ _SETUP_STMTS = [
     "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS away_current_games INTEGER",
     "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS status VARCHAR",
     "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS winner_code INTEGER",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS country_a VARCHAR",
+    "ALTER TABLE live_processed.match_detail_points ADD COLUMN IF NOT EXISTS country_b VARCHAR",
     """
     CREATE TABLE IF NOT EXISTS live_processed.dashboard_log (
         ts               TIMESTAMPTZ,
@@ -253,8 +255,9 @@ INSERT INTO live_processed.match_detail_points (
     home_set3_games, away_set3_games,
     home_current_games, away_current_games,
     home_current_point, away_current_point,
-    point_winner, winner_code, tournament_name, category
-) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    point_winner, winner_code, tournament_name, category,
+    country_a, country_b
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (match_id, polled_at) DO NOTHING
 """
 
@@ -837,6 +840,8 @@ class MatchLogger:
                 parsed_detail.get("winner_code"),
                 parsed_detail.get("tournament_name"),
                 parsed_detail.get("category"),
+                parsed_detail.get("country_a"),
+                parsed_detail.get("country_b"),
             ])
 
             # Retroactive: when this row begins a new game, the previous row

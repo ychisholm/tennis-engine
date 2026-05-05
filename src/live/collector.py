@@ -103,6 +103,8 @@ class MatchWorker:
             parsed_detail = None
 
         if parsed_detail:
+            parsed_detail["country_a"] = getattr(self, "_country_a", None)
+            parsed_detail["country_b"] = getattr(self, "_country_b", None)
             try:
                 self._logger.upsert_match_detail_points(parsed_detail, polled_at)
             except Exception as exc:
