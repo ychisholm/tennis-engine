@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tennis Engine</title>
+<title>Tennis Engine · Matches</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500&family=Inter+Tight:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -16,7 +16,7 @@ body{
   --bg:#f4ead8;--bg-2:#ecdfc5;--card:#fbf4e2;
   --clay:#c85a33;--clay-dark:#9a3f20;
   --ink:#2b1d15;--ink-2:#5a4234;--ink-3:#8a6e5a;
-  --rule:#d9c6a8;--chalk:#fbf4e2;
+  --rule:#d9c6a8;--rule-soft:rgba(43,29,21,.12);--chalk:#fbf4e2;
   --edge:#4a7c3a;--edge-neu:#c69322;--edge-neg:#c85a33;
 }
 @keyframes pulseDot{0%{opacity:1}50%{opacity:0.35}100%{opacity:1}}
@@ -38,7 +38,7 @@ body{
 .nav-brand .emblem{
   width:24px;height:24px;border-radius:50%;background:var(--clay);
   color:var(--chalk);font-size:0.9rem;display:flex;align-items:center;justify-content:center;
-  font-weight:600;flex-shrink:0;
+  font-weight:600;flex-shrink:0;font-family:'Inter Tight',sans-serif;font-style:normal;
 }
 .nav-tabs{display:flex;gap:2px;margin-left:auto;align-items:center;}
 .nav-tab{
@@ -65,139 +65,224 @@ body{
 /* ── STAGE ────────────────────────────────────────────────────── */
 .stage{position:fixed;inset:52px 0 0 0;overflow-y:auto;overflow-x:hidden;}
 
-/* ── COLUMNS LAYOUT (Tab 1 & 2) ─────────────────────────────── */
-.columns-page{max-width:1320px;margin:0 auto;padding:28px 28px 60px;}
-.col-grid{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start;}
-.col-header{
-  font-family:'Cormorant Garamond',serif;font-weight:600;font-size:1.5rem;
-  color:var(--ink);letter-spacing:-0.01em;margin-bottom:18px;
-  display:flex;align-items:center;gap:10px;
+/* ── MATCHES PAGE ─────────────────────────────────────────────── */
+.matches-page{max-width:1400px;margin:0 auto;padding:32px 16px 80px;position:relative}
+
+/* Date hero */
+.date-hero{
+  position:relative;margin:4px 0 22px;
+  display:flex;flex-direction:column;align-items:center;gap:4px;
 }
-.col-header span{font-size:0.72rem;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3);font-family:'Inter Tight',sans-serif;font-style:normal;margin-top:3px}
-.tournament-group{margin-bottom:22px}
+.date-row{display:flex;align-items:center;gap:22px;}
+.date-arrow{
+  width:38px;height:38px;border-radius:50%;
+  border:1px solid var(--rule);background:transparent;color:var(--ink-2);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  transition:all .15s;font-size:1.25rem;line-height:1;
+  font-family:'Inter Tight',sans-serif;
+}
+.date-arrow:hover{background:var(--ink);color:var(--chalk);border-color:var(--ink);transform:scale(1.04)}
+.date-arrow:active{transform:scale(0.97)}
+.date-display{text-align:center;min-width:380px;cursor:default;}
+.date-eyebrow{
+  font-size:0.62rem;font-weight:700;letter-spacing:0.22em;
+  text-transform:uppercase;color:var(--clay-dark);margin-bottom:2px;
+  font-family:'Inter Tight',sans-serif;
+}
+.date-eyebrow.other{color:var(--ink-3)}
+.date-main{
+  font-family:'Cormorant Garamond',serif;font-weight:500;font-style:italic;
+  font-size:2.25rem;color:var(--ink);letter-spacing:-0.01em;line-height:1.1;
+}
+.date-jump{position:relative;margin-top:6px;}
+.date-jump-trigger{
+  font-family:'Cormorant Garamond',serif;font-style:italic;font-size:0.82rem;
+  color:var(--ink-3);background:none;border:none;cursor:pointer;
+  padding:3px 10px;border-radius:999px;transition:all .12s;
+  display:inline-flex;align-items:center;gap:5px;
+}
+.date-jump-trigger:hover{color:var(--clay-dark);background:rgba(200,90,51,.08)}
+.date-jump-trigger svg{width:11px;height:11px;opacity:.7}
+.date-jump input[type="date"]{
+  position:absolute;top:100%;left:50%;transform:translateX(-50%);
+  margin-top:6px;padding:6px 10px;border-radius:8px;
+  border:1px solid var(--rule);background:var(--card);
+  font-family:'Inter Tight',sans-serif;font-size:0.78rem;color:var(--ink);
+  cursor:pointer;outline:none;display:none;
+  box-shadow:0 6px 22px rgba(43,29,21,.12);
+}
+.date-jump.open input[type="date"]{display:block}
+.date-jump input[type="date"]:focus{border-color:var(--clay)}
+
+/* Filter toggle */
+.filter-toggle-wrap{display:flex;justify-content:center;margin:18px 0 30px}
+.filter-toggle{
+  display:flex;justify-content:space-evenly;align-items:center;
+  padding:3px;border-radius:999px;
+  background:var(--bg-2);border:1px solid var(--rule);
+  width:min(560px,100%);gap:4px;
+}
+.filter-toggle button{
+  background:transparent;border:none;cursor:pointer;
+  padding:6px 18px;font-family:'Inter Tight',sans-serif;
+  font-size:0.72rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;
+  color:var(--ink-2);border-radius:999px;transition:all .15s;
+  display:flex;align-items:center;justify-content:center;gap:7px;
+  flex:1;white-space:nowrap;
+}
+.filter-toggle button:hover{color:var(--ink)}
+.filter-toggle button.active{background:var(--ink);color:var(--chalk)}
+.filter-toggle button .dot-live{
+  width:6px;height:6px;border-radius:50%;background:var(--clay);
+  animation:pulseDot 1.8s infinite;
+}
+.filter-toggle button.active .dot-live{background:var(--chalk)}
+.filter-toggle .count{
+  font-family:'IBM Plex Mono',monospace;font-size:0.6rem;font-weight:600;
+  opacity:.65;margin-left:2px;letter-spacing:0;
+}
+.filter-toggle button.active .count{opacity:.7}
+
+/* Section blocks */
+.match-section{margin-bottom:44px;scroll-margin-top:80px}
+.match-section.hidden{display:none}
+.section-head{
+  display:flex;align-items:baseline;gap:14px;
+  margin-bottom:20px;padding-bottom:10px;
+  border-bottom:1px solid var(--rule);
+}
+.section-title{
+  font-family:'Cormorant Garamond',serif;font-weight:600;font-size:1.55rem;
+  color:var(--ink);letter-spacing:-0.01em;
+  display:flex;align-items:center;gap:10px;
+  white-space:nowrap;flex-shrink:0;
+}
+.section-title .live-dot{width:9px;height:9px}
+.section-count{
+  font-family:'IBM Plex Mono',monospace;font-size:0.7rem;font-weight:600;
+  color:var(--ink-3);letter-spacing:0.04em;
+}
+.section-blurb{
+  margin-left:auto;font-size:0.78rem;color:var(--ink-3);
+  font-family:'Cormorant Garamond',serif;font-style:italic;
+}
+.section-empty{
+  padding:24px 22px;border:1px dashed var(--rule);border-radius:10px;
+  background:rgba(217,198,168,.18);text-align:center;
+  font-family:'Cormorant Garamond',serif;font-style:italic;
+  font-size:0.95rem;color:var(--ink-3);
+}
+
+/* Tour columns: ATP | WTA side-by-side */
+.tour-cols{
+  display:grid;grid-template-columns:1fr 1fr;gap:48px;
+  align-items:start;
+}
+.tour-subsection{margin-bottom:0;min-width:0}
+.tour-subsection:last-child{margin-bottom:0}
+.tour-subhead{
+  display:flex;align-items:center;gap:10px;
+  margin-bottom:12px;
+  font-size:0.66rem;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;
+  color:var(--ink-2);
+}
+.tour-subhead .tour-tag{
+  padding:2px 9px;border-radius:999px;
+  background:var(--ink);color:var(--chalk);
+  font-size:0.6rem;font-weight:700;letter-spacing:0.12em;
+}
+.tour-subhead .tour-name{color:var(--ink-3);font-weight:600}
+.tour-subhead .rule{flex:1;height:1px;background:var(--rule)}
+
+.tournament-group{margin-bottom:14px}
+.tournament-group:last-child{margin-bottom:0}
 .tournament-label{
-  font-size:0.64rem;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;
-  color:var(--ink-3);margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid var(--rule);
+  font-size:0.62rem;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;
+  color:var(--ink-3);margin-bottom:8px;
   display:flex;align-items:center;gap:8px;
 }
 .surface-pill{
-  display:inline-block;padding:1px 7px;border-radius:999px;font-size:0.6rem;font-weight:700;
+  display:inline-block;padding:1px 7px;border-radius:999px;font-size:0.58rem;font-weight:700;
   letter-spacing:0.1em;text-transform:uppercase;background:rgba(200,90,51,.1);color:var(--clay-dark);
 }
 
-/* ── RESULTS CONTROLS ─────────────────────────────────────── */
-.results-controls{
-  display:flex;align-items:center;gap:12px;margin-bottom:24px;flex-wrap:wrap;
+.match-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start;
 }
-.month-nav{
-  display:flex;align-items:center;gap:0;
-  background:var(--card);border:1px solid var(--rule);border-radius:8px;overflow:hidden;
-  flex-shrink:0;
-}
-.month-nav-btn{
-  background:transparent;border:none;color:var(--ink-2);cursor:pointer;
-  padding:8px 16px;font-size:1.2rem;line-height:1;
-  transition:background .12s,color .12s;
-}
-.month-nav-btn:hover:not(:disabled){background:rgba(200,90,51,.1);color:var(--clay)}
-.month-nav-btn:disabled{opacity:.2;cursor:default}
-.month-label{
-  font-family:'Cormorant Garamond',serif;font-size:0.95rem;font-weight:600;
-  min-width:144px;text-align:center;color:var(--ink);user-select:none;
-  padding:0 2px;
-}
-.results-search{
-  flex:1;min-width:180px;max-width:320px;
-  font-family:'Inter Tight',sans-serif;font-size:0.82rem;color:var(--ink);
-  background:var(--card);border:1px solid var(--rule);border-radius:8px;
-  padding:9px 14px;outline:none;transition:border-color .12s;
-}
-.results-search:focus{border-color:rgba(200,90,51,.45)}
-.results-search::placeholder{color:var(--ink-3)}
-.results-count{
-  font-size:0.68rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
-  color:var(--ink-3);white-space:nowrap;margin-left:auto;
+.tour-empty{
+  border:1px dashed var(--rule);border-radius:6px;
+  padding:22px 16px;text-align:center;
+  font-family:'Cormorant Garamond',serif;font-style:italic;
+  color:var(--ink-3);font-size:0.95rem;
+  background:rgba(255,255,255,0.3);
 }
 
-/* ── MATCH CARD ───────────────────────────────────────────────── */
+/* ── MATCH CARD (compact, reduced horizontal padding) ────────── */
 .match-card{
   background:var(--card);border:1px solid var(--rule);border-radius:10px;
-  margin-bottom:8px;overflow:hidden;cursor:pointer;
-  transition:box-shadow .15s,border-color .15s;
+  overflow:hidden;cursor:pointer;
+  transition:box-shadow .15s,border-color .15s,transform .15s;
+  position:relative;
 }
-.match-card:hover{box-shadow:0 4px 18px rgba(43,29,21,.1);border-color:rgba(200,90,51,.35)}
+.match-card:hover{box-shadow:0 4px 18px rgba(43,29,21,.1);border-color:rgba(200,90,51,.35);transform:translateY(-1px)}
 .match-card:hover .card-status-time{text-decoration:underline}
-.card-header-row{
-  display:flex;align-items:center;justify-content:space-between;
-  padding:7px 12px 5px;border-bottom:1px solid rgba(217,198,168,.5);
+.match-card.live::after{
+  content:"";position:absolute;top:0;left:0;width:3px;height:100%;
+  background:var(--clay);
 }
-.card-round{font-size:0.64rem;font-weight:600;letter-spacing:0.08em;color:var(--ink-3);text-transform:uppercase}
-.card-status-live{display:flex;align-items:center;gap:5px;font-size:0.68rem;font-weight:700;color:var(--clay-dark)}
-.card-status-time{font-size:0.72rem;font-weight:600;color:var(--clay);text-decoration:none;cursor:pointer}
-.card-status-final{font-size:0.68rem;font-weight:600;letter-spacing:0.08em;color:var(--ink-3);text-transform:uppercase}
 
-.card-players{padding:6px 12px 8px;padding-left:22px;position:relative}
+.card-header-row{
+  display:flex;align-items:center;justify-content:space-between;gap:6px;
+  padding:6px 8px 4px;border-bottom:1px solid rgba(217,198,168,.6);
+  min-height:24px;
+}
+.card-round{font-size:0.6rem;font-weight:600;letter-spacing:0.06em;color:var(--ink-3);text-transform:uppercase;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.card-status-live{display:flex;align-items:center;gap:5px;font-size:0.66rem;font-weight:700;color:var(--clay-dark);flex-shrink:0}
+.card-status-time{font-size:0.7rem;font-weight:600;color:var(--clay);text-decoration:none;cursor:pointer;flex-shrink:0}
+.card-status-final{font-size:0.66rem;font-weight:600;letter-spacing:0.08em;color:var(--ink-3);text-transform:uppercase;flex-shrink:0}
+.card-status-wo{font-size:0.66rem;font-weight:700;letter-spacing:0.08em;color:var(--ink-3);text-transform:uppercase;font-style:italic;flex-shrink:0}
+
+.card-players{padding:6px 8px 8px;padding-left:14px;position:relative}
 .player-row{
-  display:flex;align-items:center;gap:7px;padding:4px 0;
+  display:flex;align-items:center;gap:6px;padding:4px 0;
   position:relative;min-height:28px;
 }
 .player-row.serving::before{
-  content:"▶";font-size:0.5rem;color:var(--clay);position:absolute;left:-10px;
+  content:"▶";font-size:0.5rem;color:var(--clay);position:absolute;left:-9px;
 }
-.player-flag{font-size:1rem;line-height:1;width:18px;flex-shrink:0}
-.player-seed{font-size:0.62rem;font-weight:700;color:var(--ink-3);width:14px;text-align:center;flex-shrink:0}
+.player-flag{font-size:0.95rem;line-height:1;width:17px;flex-shrink:0}
+.player-seed{font-size:0.6rem;font-weight:700;color:var(--ink-3);width:13px;text-align:center;flex-shrink:0}
 .player-name{
-  font-family:'Cormorant Garamond',serif;font-size:1.02rem;font-weight:500;
+  font-family:'Cormorant Garamond',serif;font-size:1rem;font-weight:500;
   color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
 }
 .player-name.winner{font-weight:700;color:var(--ink)}
 .player-name.loser{color:var(--ink-2)}
-.sets-area{display:flex;gap:2px;align-items:center;margin-left:auto;flex-shrink:0}
+.sets-area{display:flex;gap:1px;align-items:center;margin-left:auto;flex-shrink:0}
 .set-score{
-  font-family:'Cormorant Garamond',serif;font-size:1.15rem;font-weight:500;
-  color:var(--ink-3);min-width:22px;text-align:center;font-variant-numeric:tabular-nums;
+  font-family:'Cormorant Garamond',serif;font-size:1.1rem;font-weight:500;
+  color:var(--ink-3);min-width:20px;text-align:center;font-variant-numeric:tabular-nums;
   position:relative;line-height:1;
 }
 .set-score.won{color:var(--ink);font-weight:700}
 .set-score.live{color:var(--ink);background:rgba(200,90,51,.12);border-radius:4px;padding:0 3px}
+.set-score sup{font-size:0.55rem;position:absolute;top:-4px;right:-2px;color:var(--ink-3)}
 .pts-score{
-  font-family:'IBM Plex Mono',monospace;font-size:0.9rem;font-weight:600;
-  color:var(--clay);min-width:28px;text-align:center;margin-left:4px;
+  font-family:'IBM Plex Mono',monospace;font-size:0.85rem;font-weight:600;
+  color:var(--clay);min-width:26px;text-align:center;margin-left:3px;
   font-variant-numeric:tabular-nums;
 }
-.upcoming-time-area{
-  margin-left:auto;flex-shrink:0;
-  display:flex;align-items:center;justify-content:center;
-}
+.upcoming-time-area{margin-left:auto;flex-shrink:0;display:flex;align-items:center;justify-content:center}
 .upcoming-time{
-  font-family:'IBM Plex Mono',monospace;font-size:1rem;font-weight:600;
+  font-family:'IBM Plex Mono',monospace;font-size:0.95rem;font-weight:600;
   color:var(--ink-2);letter-spacing:0.04em;
 }
-
-/* Live probability bar */
-.prob-bar-wrap{padding:0 12px 8px;display:flex;flex-direction:column;gap:3px}
-.prob-bar-labels{display:flex;justify-content:space-between;font-size:0.6rem;font-weight:700;color:var(--ink-3)}
-.prob-bar-labels .lbl-a{color:var(--ink)}
-.prob-bar-labels .lbl-b{color:var(--clay)}
-.prob-bar{height:4px;border-radius:999px;display:flex;overflow:hidden;background:var(--rule)}
-.prob-bar-a{background:var(--ink);border-radius:999px 0 0 999px;transition:width .4s}
-.prob-bar-b{background:var(--clay);border-radius:0 999px 999px 0;flex:1}
-
-/* ── FILTER BAR (Tab 2) ───────────────────────────────────────── */
-.filter-bar{
-  background:var(--card);border:1px solid var(--rule);border-radius:10px;
-  padding:12px 16px;margin-bottom:22px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+.wo-mark{
+  font-size:0.72rem;color:var(--ink-3);font-style:italic;
+  font-family:'Cormorant Garamond',serif;
 }
-.filter-label{font-size:0.64rem;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-3)}
-.filter-input{
-  font-family:'Inter Tight',sans-serif;font-size:0.78rem;font-weight:500;color:var(--ink);
-  background:var(--bg-2);border:1px solid var(--rule);border-radius:6px;padding:5px 10px;
-  outline:none;cursor:pointer;
-}
-.filter-input:focus{border-color:var(--clay)}
-.filter-sep{width:1px;height:20px;background:var(--rule)}
 
-/* ── DASHBOARD TAB ────────────────────────────────────────────── */
+/* ── DASHBOARD TAB (UNCHANGED — match detail view) ────────────── */
 .dashboard-wrap{min-height:100%}
 .dash-page{max-width:1320px;margin:0 auto;padding:24px 28px 60px}
 
@@ -411,6 +496,13 @@ body{
   background:rgba(200,90,51,.1);border:1px solid rgba(200,90,51,.3);color:var(--clay-dark);
   padding:8px 14px;border-radius:6px;font-size:0.78rem;margin-bottom:14px;
 }
+
+@media (max-width:880px){
+  .tour-cols{grid-template-columns:1fr;gap:18px}
+  .match-grid{grid-template-columns:1fr}
+  .date-display{min-width:240px}
+  .date-main{font-size:1.7rem}
+}
 </style>
 </head>
 <body>
@@ -621,21 +713,78 @@ function categoryOf(m) {
   return 'ATP';
 }
 
+// ─── Date helpers (matches landing page) ─────────────────────────────────────
+
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DAY_NAMES   = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+function todayLocal() {
+  const n = new Date();
+  return new Date(n.getFullYear(), n.getMonth(), n.getDate());
+}
+function fmtLocalISO(d) {
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+function unixToLocalISO(unix) {
+  const d = new Date(unix * 1000);
+  return fmtLocalISO(d);
+}
+function fmtDateDisplay(d) {
+  return `${DAY_NAMES[d.getDay()]}, ${MONTH_NAMES[d.getMonth()]} ${d.getDate()}`;
+}
+function dayDiff(a, b) {
+  const a0 = new Date(a.getFullYear(), a.getMonth(), a.getDate());
+  const b0 = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((a0 - b0) / 86400000);
+}
+function eyebrowFor(diff) {
+  if (diff === 0) return { text: 'Today',     other: false };
+  if (diff === -1) return { text: 'Yesterday', other: true  };
+  if (diff === 1) return { text: 'Tomorrow',  other: true  };
+  if (diff < 0)   return { text: `${Math.abs(diff)} days ago`, other: true };
+  return { text: `In ${diff} days`, other: true };
+}
+
+// Side-of-tiebreak superscript (e.g. 7⁵ means 7-5 in TB) — split tiebreak
+// from the main set score when the data carries it as `7^5` or `7-5`.
+function splitSetScore(v) {
+  if (v == null) return { main: null, tb: null };
+  const s = String(v);
+  let m = s.match(/^(\d+)\s*[\^\-:]\s*(\d+)$/);
+  if (m) return { main: m[1], tb: m[2] };
+  return { main: s, tb: null };
+}
+
 // ─── Match Card (live / upcoming / final) ───────────────────────────────────
+
+function deriveWinnerSide(match) {
+  if (match.winner === 'home' || match.winner === 'away') return match.winner;
+  if (match.winner_side) return match.winner_side;
+  if (typeof match.sets_a === 'number' && typeof match.sets_b === 'number') {
+    if (match.sets_a > match.sets_b) return 'home';
+    if (match.sets_b > match.sets_a) return 'away';
+  }
+  if (typeof match.home_sets_won === 'number' && typeof match.away_sets_won === 'number') {
+    if (match.home_sets_won > match.away_sets_won) return 'home';
+    if (match.away_sets_won > match.home_sets_won) return 'away';
+  }
+  return null;
+}
 
 function MatchCard({ match, kind, onClick }) {
   // kind: 'live' | 'upcoming' | 'final'
   const servingA = match.server === 'home';
   const servingB = match.server === 'away';
   const round = match.round || '';
-  const court = match.court || '';
-  const roundLabel = [round, court].filter(Boolean).join(' · ');
+  const isWalkover = !!match.is_walkover || /walk[- ]?over/i.test(String(match.status || ''));
 
   let header;
   if (kind === 'live') {
-    const setLabel = match.current_set ? `Set ${match.current_set}` : 'Live';
+    const setLabel = match.current_set ? `${ordinal(match.current_set)} Set` : 'Live';
     header = (
-      <div className="card-status-live"><div className="live-dot"/>{`Live · ${setLabel}`}</div>
+      <div className="card-status-live"><div className="live-dot"/>{setLabel}</div>
     );
   } else if (kind === 'upcoming') {
     const day  = match.scheduled_start_unix != null ? fmtKickoffDay(match.scheduled_start_unix)  : null;
@@ -643,37 +792,53 @@ function MatchCard({ match, kind, onClick }) {
     const text = day && time ? (day === 'Today' ? time : `${day} · ${time}`) : (time || 'Scheduled');
     header = <div className="card-status-time">{text}</div>;
   } else {
-    const dateStr = match.match_date
-      ? new Date(match.match_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      : null;
-    header = <div className="card-status-final">{dateStr || 'Final'}</div>;
+    if (isWalkover) {
+      header = <div className="card-status-wo">Walkover</div>;
+    } else {
+      header = <div className="card-status-final">Final</div>;
+    }
   }
 
   const winnerSide = kind === 'final' ? deriveWinnerSide(match) : null;
   const nameClassA = kind === 'final' ? (winnerSide === 'home' ? ' winner' : winnerSide === 'away' ? ' loser' : '') : '';
   const nameClassB = kind === 'final' ? (winnerSide === 'away' ? ' winner' : winnerSide === 'home' ? ' loser' : '') : '';
 
-  // Build set columns for display
   const completedA = Array.isArray(match.set_scores_a) ? match.set_scores_a : null;
   const completedB = Array.isArray(match.set_scores_b) ? match.set_scores_b : null;
+  const completedTbA = Array.isArray(match.set_tiebreaks_a) ? match.set_tiebreaks_a : null;
+  const completedTbB = Array.isArray(match.set_tiebreaks_b) ? match.set_tiebreaks_b : null;
 
   const renderSetsRow = (side) => {
     if (kind === 'upcoming') {
       const t = match.scheduled_start_unix != null ? fmtKickoffTime(match.scheduled_start_unix) : '';
       return side === 'a' ? <div className="upcoming-time-area"><div className="upcoming-time">{t}</div></div> : null;
     }
+    if (kind === 'final' && isWalkover) {
+      return side === 'a'
+        ? <div className="sets-area"><span className="wo-mark">w/o</span></div>
+        : null;
+    }
     const completed = side === 'a' ? completedA : completedB;
     const opp       = side === 'a' ? completedB : completedA;
+    const tbList    = side === 'a' ? completedTbA : completedTbB;
     const cells = [];
     if (completed && completed.length) {
       for (let i = 0; i < completed.length; i++) {
         const v   = completed[i];
         const ov  = opp ? opp[i] : null;
         const won = ov != null && v > ov;
-        cells.push(<div key={'c'+i} className={`set-score${won?' won':''}`}>{v}</div>);
+        const tb  = tbList && tbList[i] != null ? tbList[i] : null;
+        const split = splitSetScore(v);
+        const main = split.main ?? v;
+        const tbVal = tb != null ? tb : split.tb;
+        cells.push(
+          <div key={'c'+i} className={`set-score${won?' won':''}`}>
+            {main}
+            {tbVal != null && <sup>{tbVal}</sup>}
+          </div>
+        );
       }
     } else {
-      // Prefer new schema fields, fall back to legacy.
       const sets = side === 'a'
         ? (match.home_sets_won ?? match.sets_a)
         : (match.away_sets_won ?? match.sets_b);
@@ -690,95 +855,124 @@ function MatchCard({ match, kind, onClick }) {
     return <div className="sets-area">{cells}</div>;
   };
 
+  const cardClass = `match-card${kind === 'live' ? ' live' : ''}`;
   return (
-    <div className="match-card" onClick={() => onClick && onClick(match)}>
+    <div className={cardClass} onClick={() => onClick && onClick(match)}>
       <div className="card-header-row">
-        <div className="card-round">{roundLabel || tournamentOf(match)}</div>
+        <div className="card-round">{round || tournamentOf(match)}</div>
         {header}
       </div>
       <div className="card-players">
         <div className={`player-row${kind === 'live' && servingA ? ' serving' : ''}`}>
+          <div className="player-flag">{countryFlag(match.country_a)}</div>
           {match.seed_a != null && <div className="player-seed">{match.seed_a}</div>}
-          <div className={`player-name${nameClassA}`}>{countryFlag(match.country_a)} {match.player_a}</div>
+          <div className={`player-name${nameClassA}`}>{match.player_a}</div>
           {renderSetsRow('a')}
         </div>
         <div className={`player-row${kind === 'live' && servingB ? ' serving' : ''}`}>
+          <div className="player-flag">{countryFlag(match.country_b)}</div>
           {match.seed_b != null && <div className="player-seed">{match.seed_b}</div>}
-          <div className={`player-name${nameClassB}`}>{countryFlag(match.country_b)} {match.player_b}</div>
+          <div className={`player-name${nameClassB}`}>{match.player_b}</div>
           {renderSetsRow('b')}
         </div>
       </div>
-      {kind === 'live' && match.model_prob_a != null && (
-        <div className="prob-bar-wrap">
-          <div className="prob-bar-labels">
-            <span className="lbl-a">{countryFlag(match.country_a)}{lastName(match.player_a)} {(match.model_prob_a*100).toFixed(0)}%</span>
-            <span className="lbl-b">{((1-match.model_prob_a)*100).toFixed(0)}% {countryFlag(match.country_b)}{lastName(match.player_b)}</span>
-          </div>
-          <div className="prob-bar">
-            <div className="prob-bar-a" style={{width:(match.model_prob_a*100)+'%'}}/>
-            <div className="prob-bar-b"/>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-function deriveWinnerSide(match) {
-  if (match.winner === 'home' || match.winner === 'away') return match.winner;
-  if (match.winner_side) return match.winner_side;
-  if (typeof match.sets_a === 'number' && typeof match.sets_b === 'number') {
-    if (match.sets_a > match.sets_b) return 'home';
-    if (match.sets_b > match.sets_a) return 'away';
-  }
-  return null;
+function ordinal(n) {
+  const k = Number(n);
+  if (!isFinite(k)) return String(n);
+  const s = ['th','st','nd','rd'], v = k % 100;
+  return k + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
-// ─── Tournament-grouped column ──────────────────────────────────────────────
+// ─── Tour subsection (ATP or WTA column inside a section) ───────────────────
 
-function TourColumn({ title, subtitle, items, onSelect, kindOf, emptyLabel }) {
-  if (!items.length) {
-    return (
-      <div>
-        <div className="col-header">{title} <span>{subtitle}</span></div>
-        <div className="empty-state" style={{padding:'24px 0',fontSize:'0.95rem'}}>{emptyLabel}</div>
-      </div>
-    );
-  }
-  const groups = new Map();
+function TourSubsection({ tour, items, kindOf, onSelect, emptyLabel }) {
+  // Group by tournament_name, preserving incoming order within a tournament.
+  const groups = [];
+  const idx = new Map();
   for (const m of items) {
     const t = tournamentOf(m);
-    if (!groups.has(t)) groups.set(t, []);
-    groups.get(t).push(m);
+    if (!idx.has(t)) {
+      idx.set(t, groups.length);
+      groups.push({ tournament: t, surface: m.surface, matches: [] });
+    }
+    groups[idx.get(t)].matches.push(m);
   }
+  const tourLabel = tour === 'ATP' ? "Men's Tour" : "Women's Tour";
   return (
-    <div>
-      <div className="col-header">{title} <span>{subtitle}</span></div>
-      {[...groups.entries()].map(([tourney, ms]) => {
-        const surface = ms[0].surface;
-        return (
-          <div className="tournament-group" key={tourney}>
-            <div className="tournament-label">
-              {tourney}
-              {surface && <span className="surface-pill">{surface}</span>}
-            </div>
-            {ms.map(m => (
+    <div className="tour-subsection">
+      <div className="tour-subhead">
+        <span className="tour-tag">{tour}</span>
+        <span className="tour-name">{tourLabel}</span>
+        <span className="rule"/>
+      </div>
+      {groups.length === 0 ? (
+        <div className="tour-empty">{emptyLabel}</div>
+      ) : groups.map(g => (
+        <div className="tournament-group" key={g.tournament}>
+          <div className="tournament-label">
+            {g.tournament}
+            {g.surface && <span className="surface-pill">{g.surface}</span>}
+          </div>
+          <div className="match-grid">
+            {g.matches.map(m => (
               <MatchCard key={m.match_id} match={m} kind={kindOf(m)} onClick={onSelect}/>
             ))}
           </div>
-        );
-      })}
+        </div>
+      ))}
     </div>
   );
 }
 
-// ─── Tab 1: Live & Upcoming ─────────────────────────────────────────────────
+// ─── Section block (In Progress / Upcoming / Completed) ─────────────────────
 
-function LiveAndUpcomingTab({ onSelect }) {
-  const [liveMatches, setLiveMatches] = useState([]);
-  const [upcoming,    setUpcoming]    = useState([]);
-  const [error,       setError]       = useState(null);
+function MatchSection({ id, title, blurb, count, hidden, isLive, items, kindOf, onSelect, emptyMessage }) {
+  if (hidden) return null;
+  const atp = items.filter(m => categoryOf(m) === 'ATP');
+  const wta = items.filter(m => categoryOf(m) === 'WTA');
+  const isEmpty = items.length === 0;
+  return (
+    <section className="match-section" id={id}>
+      <div className="section-head">
+        <div className="section-title">
+          {isLive && <span className="live-dot"/>}
+          {title}
+        </div>
+        <div className="section-count">{count} match{count === 1 ? '' : 'es'}</div>
+        {blurb && <div className="section-blurb">{blurb}</div>}
+      </div>
+      {isEmpty ? (
+        <div className="section-empty">{emptyMessage}</div>
+      ) : (
+        <div className="tour-cols">
+          <TourSubsection tour="ATP" items={atp} kindOf={kindOf} onSelect={onSelect}
+                          emptyLabel={`No ${title.toLowerCase()} ATP matches`}/>
+          <TourSubsection tour="WTA" items={wta} kindOf={kindOf} onSelect={onSelect}
+                          emptyLabel={`No ${title.toLowerCase()} WTA matches`}/>
+        </div>
+      )}
+    </section>
+  );
+}
 
+// ─── Matches Tab (unified landing page) ─────────────────────────────────────
+
+function MatchesTab({ active, onSelect }) {
+  const [liveMatches,     setLiveMatches]     = useState([]);
+  const [upcomingMatches, setUpcomingMatches] = useState([]);
+  const [allMatches,      setAllMatches]      = useState([]);
+  const [error,           setError]           = useState(null);
+  const [filter,          setFilter]          = useState('all');
+  const [selectedDate,    setSelectedDate]    = useState(() => todayLocal());
+  const [datePickerOpen,  setDatePickerOpen]  = useState(false);
+  const datePickerRef = useRef(null);
+  const dateJumpRef   = useRef(null);
+
+  // ── Polling: live (15s), upcoming (5min), matches (once) ─────────────────
   const fetchLive = useCallback(async () => {
     try {
       const data = await fetch('/live_matches').then(r => r.json());
@@ -790,7 +984,15 @@ function LiveAndUpcomingTab({ onSelect }) {
   const fetchUpcoming = useCallback(async () => {
     try {
       const data = await fetch('/upcoming_matches').then(r => r.json());
-      setUpcoming(Array.isArray(data) ? data : []);
+      setUpcomingMatches(Array.isArray(data) ? data : []);
+      setError(null);
+    } catch(e) { setError(e.message); }
+  }, []);
+
+  const fetchAll = useCallback(async () => {
+    try {
+      const data = await fetch('/matches').then(r => r.json());
+      setAllMatches(Array.isArray(data) ? data : []);
       setError(null);
     } catch(e) { setError(e.message); }
   }, []);
@@ -807,185 +1009,242 @@ function LiveAndUpcomingTab({ onSelect }) {
     return () => clearInterval(id);
   }, [fetchUpcoming]);
 
-  // Tag for kind
+  useEffect(() => { fetchAll(); }, [fetchAll]);
+
+  // ── Date navigation (arrow keys) ─────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!active) return;
+      const ae = document.activeElement;
+      if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)) return;
+      if (e.key === 'ArrowLeft') {
+        setSelectedDate(d => {
+          const n = new Date(d); n.setDate(n.getDate() - 1); return n;
+        });
+      } else if (e.key === 'ArrowRight') {
+        setSelectedDate(d => {
+          const n = new Date(d); n.setDate(n.getDate() + 1); return n;
+        });
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [active]);
+
+  // ── Date picker open/close ───────────────────────────────────────────────
+  useEffect(() => {
+    const onClick = (e) => {
+      if (dateJumpRef.current && !dateJumpRef.current.contains(e.target)) {
+        setDatePickerOpen(false);
+      }
+    };
+    document.addEventListener('click', onClick);
+    return () => document.removeEventListener('click', onClick);
+  }, []);
+
+  // ── Derive section lists from cached data + selectedDate ─────────────────
+  const today = todayLocal();
+  const selectedISO = fmtLocalISO(selectedDate);
+  const todayISO    = fmtLocalISO(today);
+  const diff        = dayDiff(selectedDate, today);
+  const isPast      = diff < 0;
+  const isToday     = diff === 0;
+  const isFuture    = diff > 0;
+
   const liveById = useMemo(() => {
     const s = new Set();
     for (const m of liveMatches) s.add(m.match_id);
     return s;
   }, [liveMatches]);
 
-  // Drop past-dated entries (the /upcoming_matches feed leaks today's already-
-  // completed matches because the backend has no status field), de-dupe match_id,
-  // and exclude anything already in /live_matches.
-  const upSorted = useMemo(() => {
+  // LIVE — only relevant on today
+  const liveItems = useMemo(() => {
+    if (!isToday) return [];
+    return [...liveMatches];
+  }, [liveMatches, isToday]);
+
+  // UPCOMING — today: from /upcoming_matches scheduled today, not in /live_matches,
+  // not past-scheduled. future: from /upcoming_matches scheduled on selectedDate.
+  // past: empty.
+  const upcomingItems = useMemo(() => {
+    if (isPast) return [];
     const nowSec = Date.now() / 1000;
     const seen = new Set();
     const out = [];
-    for (const m of upcoming) {
-      if (liveById.has(m.match_id)) continue;
+    for (const m of upcomingMatches) {
+      if (m.match_id == null) continue;
       if (seen.has(m.match_id)) continue;
-      if (m.scheduled_start_unix != null && m.scheduled_start_unix < nowSec) continue;
+      if (m.scheduled_start_unix == null) continue;
+      const iso = unixToLocalISO(m.scheduled_start_unix);
+      if (iso !== selectedISO) continue;
+      if (isToday) {
+        if (liveById.has(m.match_id)) continue;
+        if (m.scheduled_start_unix < nowSec) continue;
+      }
       seen.add(m.match_id);
       out.push(m);
     }
-    return out.sort((a,b) => (a.scheduled_start_unix ?? 0) - (b.scheduled_start_unix ?? 0));
-  }, [upcoming, liveById]);
+    return out.sort((a, b) => (a.scheduled_start_unix ?? 0) - (b.scheduled_start_unix ?? 0));
+  }, [upcomingMatches, liveById, isPast, isToday, selectedISO]);
 
-  const allItems = useMemo(() => {
-    return [...liveMatches, ...upSorted];
-  }, [liveMatches, upSorted]);
+  // COMPLETED — past or today: from /matches with match_date===selectedDate,
+  // excluding live ids. future: empty.
+  const completedItems = useMemo(() => {
+    if (isFuture) return [];
+    const out = [];
+    const seen = new Set();
+    for (const m of allMatches) {
+      if (!m.match_date) continue;
+      if (m.match_date !== selectedISO) continue;
+      if (m.match_id != null && liveById.has(m.match_id)) continue;
+      if (m.match_id != null) {
+        if (seen.has(m.match_id)) continue;
+        seen.add(m.match_id);
+      }
+      out.push(m);
+    }
+    return out;
+  }, [allMatches, liveById, isFuture, selectedISO]);
 
-  const atp = allItems.filter(m => categoryOf(m) === 'ATP');
-  const wta = allItems.filter(m => categoryOf(m) === 'WTA');
+  const liveCount      = liveItems.length;
+  const upcomingCount  = upcomingItems.length;
+  const completedCount = completedItems.length;
+  const allCount       = liveCount + upcomingCount + completedCount;
 
-  const kindOf = (m) => liveById.has(m.match_id) ? 'live' : 'upcoming';
+  const eyebrow = eyebrowFor(diff);
+
+  // ── Date controls ────────────────────────────────────────────────────────
+  const goPrevDay = () => setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; });
+  const goNextDay = () => setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; });
+
+  const onPickerChange = (e) => {
+    const v = e.target.value;
+    if (!v) return;
+    const [y, m, d] = v.split('-').map(Number);
+    setSelectedDate(new Date(y, m - 1, d));
+    setDatePickerOpen(false);
+  };
+
+  const openPicker = (e) => {
+    e.stopPropagation();
+    setDatePickerOpen(o => !o);
+    setTimeout(() => {
+      const inp = datePickerRef.current;
+      if (inp) {
+        inp.focus();
+        if (inp.showPicker) { try { inp.showPicker(); } catch(_) {} }
+      }
+    }, 50);
+  };
+
+  const filterShow = (sec) => filter === 'all' || filter === sec;
+
+  const liveKind = () => 'live';
+  const upKind   = () => 'upcoming';
+  const finalKind = () => 'final';
+
+  // Empty messages per date / section
+  const liveEmpty = isToday ? 'No live matches at the moment.' :
+                    isPast  ? 'Past dates have no live data.'  :
+                              'Future dates have no live data.';
+  const upcomingEmpty = isPast    ? 'Past dates have no upcoming matches.' :
+                       isToday   ? 'No upcoming matches scheduled for the rest of today.' :
+                                   `No matches scheduled for ${MONTH_NAMES[selectedDate.getMonth()]} ${selectedDate.getDate()}.`;
+  const completedEmpty = isFuture ? 'Future dates have no completed matches.' :
+                                    `No completed matches on ${MONTH_NAMES[selectedDate.getMonth()]} ${selectedDate.getDate()}.`;
 
   return (
-    <div className="columns-page">
+    <div className="matches-page">
       {error && <div className="error-banner">⚠ {error}</div>}
-      <div className="col-grid">
-        <TourColumn title="ATP" subtitle="Men's Tour" items={atp}
-                    onSelect={onSelect} kindOf={kindOf}
-                    emptyLabel="No live or upcoming ATP matches"/>
-        <TourColumn title="WTA" subtitle="Women's Tour" items={wta}
-                    onSelect={onSelect} kindOf={kindOf}
-                    emptyLabel="No live or upcoming WTA matches"/>
+
+      {/* Date hero */}
+      <div className="date-hero">
+        <div className="date-row">
+          <button className="date-arrow" onClick={goPrevDay} aria-label="Previous day">‹</button>
+          <div className="date-display">
+            <div className={`date-eyebrow${eyebrow.other ? ' other' : ''}`}>{eyebrow.text}</div>
+            <div className="date-main">{fmtDateDisplay(selectedDate)}</div>
+          </div>
+          <button className="date-arrow" onClick={goNextDay} aria-label="Next day">›</button>
+        </div>
+        <div className={`date-jump${datePickerOpen ? ' open' : ''}`} ref={dateJumpRef}>
+          <button className="date-jump-trigger" onClick={openPicker} aria-label="Jump to date">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="2" y="3" width="12" height="11" rx="1.5"/>
+              <line x1="2" y1="6.5" x2="14" y2="6.5"/>
+              <line x1="6" y1="1.5" x2="6" y2="4"/>
+              <line x1="10" y1="1.5" x2="10" y2="4"/>
+            </svg>
+            jump to date
+          </button>
+          <input type="date" ref={datePickerRef} value={selectedISO} onChange={onPickerChange}/>
+        </div>
       </div>
+
+      {/* Filter toggle */}
+      <div className="filter-toggle-wrap">
+        <div className="filter-toggle">
+          <button className={filter==='all' ? 'active' : ''} onClick={() => setFilter('all')}>
+            All <span className="count">{allCount}</span>
+          </button>
+          <button className={filter==='live' ? 'active' : ''} onClick={() => setFilter('live')}>
+            <span className="dot-live"/>Live <span className="count">{liveCount}</span>
+          </button>
+          <button className={filter==='upcoming' ? 'active' : ''} onClick={() => setFilter('upcoming')}>
+            Upcoming <span className="count">{upcomingCount}</span>
+          </button>
+          <button className={filter==='completed' ? 'active' : ''} onClick={() => setFilter('completed')}>
+            Completed <span className="count">{completedCount}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Sections */}
+      <MatchSection
+        id="sec-live"
+        title="In Progress"
+        blurb="Updated every 15s"
+        count={liveCount}
+        hidden={!filterShow('live')}
+        isLive={true}
+        items={liveItems}
+        kindOf={liveKind}
+        onSelect={onSelect}
+        emptyMessage={liveEmpty}
+      />
+
+      <MatchSection
+        id="sec-upcoming"
+        title="Upcoming"
+        blurb={isToday ? 'Scheduled later today' : (isFuture ? `Scheduled for ${MONTH_NAMES[selectedDate.getMonth()]} ${selectedDate.getDate()}` : null)}
+        count={upcomingCount}
+        hidden={!filterShow('upcoming')}
+        isLive={false}
+        items={upcomingItems}
+        kindOf={upKind}
+        onSelect={onSelect}
+        emptyMessage={upcomingEmpty}
+      />
+
+      <MatchSection
+        id="sec-completed"
+        title="Completed"
+        blurb={isToday ? 'Final results today' : (isPast ? `Final results for ${MONTH_NAMES[selectedDate.getMonth()]} ${selectedDate.getDate()}` : null)}
+        count={completedCount}
+        hidden={!filterShow('completed')}
+        isLive={false}
+        items={completedItems}
+        kindOf={finalKind}
+        onSelect={onSelect}
+        emptyMessage={completedEmpty}
+      />
     </div>
   );
 }
 
-// ─── Tab 2: Results ─────────────────────────────────────────────────────────
-
-function ResultsTab({ onSelect }) {
-  const nowDate = new Date();
-  const [matches,  setMatches]  = useState([]);
-  const [error,    setError]    = useState(null);
-  const [search,   setSearch]   = useState('');
-  const [curYear,  setCurYear]  = useState(nowDate.getFullYear());
-  const [curMonth, setCurMonth] = useState(nowDate.getMonth());
-
-  useEffect(() => {
-    Promise.all([
-      fetch('/matches').then(r => r.json()),
-      fetch('/live_matches').then(r => r.json()).catch(() => []),
-    ]).then(([all, live]) => {
-      const liveIds = new Set((live || []).map(m => m.match_id));
-      setMatches((all || []).filter(m => !liveIds.has(m.match_id)));
-    }).catch(e => setError(e.message));
-  }, []);
-
-  const monthLabel = (y, m) =>
-    new Date(y, m, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-
-  const isCurrentMonth =
-    curYear === nowDate.getFullYear() && curMonth === nowDate.getMonth();
-
-  const goPrev = () => {
-    const d = new Date(curYear, curMonth - 1, 1);
-    setCurYear(d.getFullYear()); setCurMonth(d.getMonth());
-  };
-  const goNext = () => {
-    if (isCurrentMonth) return;
-    const d = new Date(curYear, curMonth + 1, 1);
-    setCurYear(d.getFullYear()); setCurMonth(d.getMonth());
-  };
-
-  // Derive unique tournaments for tooltip/future use
-  const tournaments = useMemo(() => {
-    const s = new Set();
-    for (const m of matches) if (m.tournament_name) s.add(m.tournament_name);
-    return [...s].sort();
-  }, [matches]);
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return matches.filter(m => {
-      if (m.match_date) {
-        const d = new Date(m.match_date + 'T12:00:00');
-        if (d.getFullYear() !== curYear || d.getMonth() !== curMonth) return false;
-      }
-      if (q) {
-        const hay = `${m.player_a || ''} ${m.player_b || ''} ${m.tournament_name || ''}`.toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [matches, curYear, curMonth, search]);
-
-  const atp = filtered.filter(m => categoryOf(m) === 'ATP');
-  const wta = filtered.filter(m => categoryOf(m) === 'WTA');
-
-  const hasAnyMatches = matches.some(m => {
-    if (!m.match_date) return false;
-    const d = new Date(m.match_date + 'T12:00:00');
-    return d.getFullYear() === curYear && d.getMonth() === curMonth;
-  });
-
-  return (
-    <div className="columns-page">
-      <div className="results-controls">
-        <div className="month-nav">
-          <button className="month-nav-btn" onClick={goPrev} title="Previous month">‹</button>
-          <span className="month-label">{monthLabel(curYear, curMonth)}</span>
-          <button
-            className="month-nav-btn"
-            onClick={goNext}
-            disabled={isCurrentMonth}
-            title="Next month"
-          >›</button>
-        </div>
-
-        <input
-          type="text"
-          className="results-search"
-          placeholder="Search player or tournament…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-        />
-
-        {filtered.length > 0 && (
-          <span className="results-count">
-            {filtered.length} match{filtered.length !== 1 ? 'es' : ''}
-          </span>
-        )}
-      </div>
-
-      {error && <div className="error-banner">⚠ {error}</div>}
-
-      {!hasAnyMatches && !search ? (
-        <div className="empty-state">
-          No matches recorded in {monthLabel(curYear, curMonth)}.<br/>
-          <span style={{fontSize:'0.85rem',color:'var(--ink-3)'}}>Use ‹ to go back to a month with data.</span>
-        </div>
-      ) : !filtered.length ? (
-        <div className="empty-state">
-          No matches found{search ? ` for "${search}"` : ''} in {monthLabel(curYear, curMonth)}.
-        </div>
-      ) : (
-        <div className="col-grid">
-          <TourColumn
-            title="ATP" subtitle="Men's Tour" items={atp}
-            onSelect={onSelect} kindOf={() => 'final'}
-            emptyLabel="No ATP results this month"
-          />
-          <TourColumn
-            title="WTA" subtitle="Women's Tour" items={wta}
-            onSelect={onSelect} kindOf={() => 'final'}
-            emptyLabel="No WTA results this month"
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Match Detail tab ───────────────────────────────────────────────────────
+// ─── Match Detail tab (UNCHANGED — preserved exactly as before) ─────────────
 
 function HeroCard({ match, latest, sc, viewPlayer, setViewPlayer, isScrubbing, isFinal: isFinalProp }) {
-  // sc.isFinal is derived from the data (complete_marker / status='finished').
-  // Prefer it when available so the header reflects what was actually polled,
-  // not just what the parent inferred from the match list payload.
   const isFinal = sc?.isFinal ?? isFinalProp;
   const flip    = viewPlayer==='B';
   const modelP  = !latest ? null : (flip ? (latest.model_prob_a     !=null ? 1-latest.model_prob_a     : null) : latest.model_prob_a);
@@ -995,9 +1254,6 @@ function HeroCard({ match, latest, sc, viewPlayer, setViewPlayer, isScrubbing, i
 
   const playerA = match.player_a ?? 'Home (A)';
   const playerB = match.player_b ?? 'Away (B)';
-  // Pre-computed columns from live_processed.points (via deriveScoreFromColumns
-  // → sc) are authoritative. Fall back to direct reads on `latest` for the
-  // /live_matches list payload, which delivers the same column names.
   const completedSets = sc?.completedSets ?? [];
   const gamesA = sc?.gamesA ?? latest?.home_games_won ?? 0;
   const gamesB = sc?.gamesB ?? latest?.away_games_won ?? 0;
@@ -1262,7 +1518,6 @@ function PointByPoint({ allPoints, playerA, playerB }) {
   );
   const [activeSet, setActiveSet] = useState(null);
 
-  // Keep activeSet in range as match progresses; default to latest set.
   useEffect(() => {
     if (!setNums.length) return;
     if (activeSet == null || !setNums.includes(activeSet)) {
@@ -1277,7 +1532,6 @@ function PointByPoint({ allPoints, playerA, playerB }) {
     </div>
   );
 
-  // Pre-compute per-set game counts for set-tab labels (winner totals)
   const setSummaries = setNums.map(s => {
     const sg = games.filter(g => g.set === s);
     let h = 0, a = 0;
@@ -1295,7 +1549,6 @@ function PointByPoint({ allPoints, playerA, playerB }) {
   const activeGames = games.filter(g => g.set === activeSet);
   const isLiveSet   = activeSet === setNums[setNums.length - 1];
 
-  // Render game blocks with running set score before each game.
   let runH = 0, runA = 0;
   const gameBlocks = activeGames.map((g, gi) => {
     const last = g.points[g.points.length - 1];
@@ -1497,11 +1750,11 @@ function MatchDetail({ match, onBack }) {
 // ─── Root ───────────────────────────────────────────────────────────────────
 
 function App() {
-  const [tab, setTab] = useState('live');
+  const [tab, setTab] = useState('matches');
   const [selectedMatch, setSelectedMatch] = useState(null);
 
   const openMatch  = (m) => { setSelectedMatch(m); setTab('match'); };
-  const closeMatch = ()  => { setTab('live'); };
+  const closeMatch = ()  => { setTab('matches'); };
 
   const matchTabLabel = selectedMatch
     ? `${countryFlag(selectedMatch.country_a)}${lastName(selectedMatch.player_a)} · ${countryFlag(selectedMatch.country_b)}${lastName(selectedMatch.player_b)}`
@@ -1516,11 +1769,8 @@ function App() {
         </div>
         <div className="live-badge"><div className="live-dot"/>Live · 15s</div>
         <div className="nav-tabs">
-          <button className={`nav-tab${tab==='live' ? ' active' : ''}`} onClick={()=>setTab('live')}>
-            Live &amp; Upcoming
-          </button>
-          <button className={`nav-tab${tab==='results' ? ' active' : ''}`} onClick={()=>setTab('results')}>
-            Results
+          <button className={`nav-tab${tab==='matches' ? ' active' : ''}`} onClick={()=>setTab('matches')}>
+            Matches
           </button>
           {selectedMatch && (
             <button className={`nav-tab match-tab${tab==='match' ? ' active' : ''}`} onClick={()=>setTab('match')}>
@@ -1530,9 +1780,11 @@ function App() {
         </div>
       </nav>
       <div className="stage">
-        {tab === 'live'    && <LiveAndUpcomingTab onSelect={openMatch}/>}
-        {tab === 'results' && <ResultsTab onSelect={openMatch}/>}
-        {tab === 'match'   && selectedMatch && (
+        {/* MatchesTab is mounted always so its polling continues independent of tab. */}
+        <div style={{display: tab === 'matches' ? 'block' : 'none', minHeight: '100%'}}>
+          <MatchesTab active={tab === 'matches'} onSelect={openMatch}/>
+        </div>
+        {tab === 'match' && selectedMatch && (
           <MatchDetail match={selectedMatch} onBack={closeMatch}/>
         )}
       </div>
