@@ -27,10 +27,11 @@ _PRE_MATCH_WINDOW = 900           # seconds ahead within which PRE_MATCH arms
 
 
 class MatchScheduler:
-    def __init__(self, feed, collector, logger) -> None:
+    def __init__(self, feed, collector, logger, poll_logger=None) -> None:
         self._feed = feed
         self._collector = collector
         self._logger = logger
+        self._poll_logger = poll_logger
         self._state: str = "IDLE"
         self._upcoming_matches: list[dict] = []
         self._scheduler = BackgroundScheduler()
@@ -58,6 +59,9 @@ class MatchScheduler:
 
     def _check_schedule(self) -> None:
         """Decide current state by inspecting live and upcoming matches."""
+        poll_logger = getattr(self, "_poll_logger", None)
+        if poll_logger is not None:
+            poll_logger.log(event_type="TICK_START", detail=self._state)
         try:
             self._upcoming_matches = self._feed.get_upcoming_matches()
         except Exception as exc:
@@ -115,18 +119,36 @@ class MatchScheduler:
             _log.info("IDLE — no upcoming matches in schedule window")
 
     def _enter_idle(self) -> None:
+        prev = self._state
         _log.info("Entering IDLE state")
         self._state = "IDLE"
         self._collector.stop()
+        poll_logger = getattr(self, "_poll_logger", None)
+        if poll_logger is not None:
+            poll_logger.log(
+                event_type="STATE_TRANSITION", detail=f"{prev}->IDLE"
+            )
 
     def _enter_pre_match(self) -> None:
+        prev = self._state
         _log.info("Entering PRE_MATCH state — armed for upcoming match")
         self._state = "PRE_MATCH"
+        poll_logger = getattr(self, "_poll_logger", None)
+        if poll_logger is not None:
+            poll_logger.log(
+                event_type="STATE_TRANSITION", detail=f"{prev}->PRE_MATCH"
+            )
 
     def _enter_live(self) -> None:
+        prev = self._state
         _log.info("Entering LIVE state — starting live polling")
         self._state = "LIVE"
         self._collector.start()
+        poll_logger = getattr(self, "_poll_logger", None)
+        if poll_logger is not None:
+            poll_logger.log(
+                event_type="STATE_TRANSITION", detail=f"{prev}->LIVE"
+            )
 
 
 def _is_live_qualifying(event: dict) -> bool:

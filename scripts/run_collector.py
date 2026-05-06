@@ -23,6 +23,7 @@ from src.live.collector import MatchCollector
 from src.live.logger import MatchLogger
 from src.live.scheduler import MatchScheduler
 from src.live.tennis_feed import TennisFeed
+from src.poll_logger import PollLogger
 
 _PORT = 8000
 _LOG_DIR = _ROOT / "logs"
@@ -66,12 +67,21 @@ def main() -> None:
     time.sleep(1)
     log.info("Dashboard at http://localhost:%d/dashboard", _PORT)
 
+    poll_logger = PollLogger()
+    poll_logger.setup()
+
     feed      = TennisFeed(api_key=rapidapi_key)
     collector = MatchCollector(
         rapidapi_key=rapidapi_key,
+        poll_logger=poll_logger,
     )
     scheduler_logger = MatchLogger()
-    scheduler = MatchScheduler(feed=feed, collector=collector, logger=scheduler_logger)
+    scheduler = MatchScheduler(
+        feed=feed,
+        collector=collector,
+        logger=scheduler_logger,
+        poll_logger=poll_logger,
+    )
 
     scheduler.start()
     log.info("MatchScheduler started — current state: %s", scheduler.state)
@@ -85,6 +95,7 @@ def main() -> None:
         scheduler.stop()
         collector.stop()
         scheduler_logger.close()
+        poll_logger.close()
         log.info("Clean shutdown complete")
 
 

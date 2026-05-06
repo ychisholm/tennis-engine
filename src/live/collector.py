@@ -31,6 +31,7 @@ class MatchWorker:
         event: dict,
         rapidapi_key: str,
         poll_interval: int = 15,
+        poll_logger=None,
     ) -> None:
         self._match_id        = event["id"]
         self._player_a        = event["homeTeam"]["name"]
@@ -51,6 +52,12 @@ class MatchWorker:
         )
         self._poll_interval = poll_interval
         self._running       = True
+        self._poll_logger   = poll_logger
+        # Counts score-state changes observed since this worker started polling,
+        # NOT total points played in the match. Used as the points_count value
+        # logged with POINTS_RECEIVED audit events.
+        self._cumulative_points: int = 0
+        self._last_score_state: tuple | None = None
 
         self._feed   = TennisFeed(api_key=rapidapi_key)
         self._logger = MatchLogger()
@@ -100,9 +107,44 @@ class MatchWorker:
                 "match_detail fetch/log error for %s vs %s: %s",
                 self._player_a, self._player_b, exc,
             )
+            poll_logger = getattr(self, "_poll_logger", None)
+            if poll_logger is not None:
+                poll_logger.log(
+                    event_type="POLL_ERROR",
+                    match_id=self._match_id,
+                    detail=str(exc)[:200],
+                )
             parsed_detail = None
 
         if parsed_detail:
+            score_state = (
+                parsed_detail.get("home_sets"),
+                parsed_detail.get("away_sets"),
+                parsed_detail.get("home_period1"),
+                parsed_detail.get("away_period1"),
+                parsed_detail.get("home_period2"),
+                parsed_detail.get("away_period2"),
+                parsed_detail.get("home_period3"),
+                parsed_detail.get("away_period3"),
+                parsed_detail.get("home_current_point"),
+                parsed_detail.get("away_current_point"),
+            )
+            poll_logger = getattr(self, "_poll_logger", None)
+            if poll_logger is not None:
+                if score_state != getattr(self, "_last_score_state", None):
+                    self._cumulative_points = getattr(self, "_cumulative_points", 0) + 1
+                    poll_logger.log(
+                        event_type="POINTS_RECEIVED",
+                        match_id=self._match_id,
+                        points_count=self._cumulative_points,
+                    )
+                else:
+                    poll_logger.log(
+                        event_type="NO_NEW_POINTS",
+                        match_id=self._match_id,
+                    )
+            self._last_score_state = score_state
+
             parsed_detail["country_a"] = getattr(self, "_country_a", None)
             parsed_detail["country_b"] = getattr(self, "_country_b", None)
             try:
@@ -112,6 +154,13 @@ class MatchWorker:
                     "upsert_match_detail_points error for %s vs %s (match %s): %s",
                     self._player_a, self._player_b, self._match_id, exc,
                 )
+                poll_logger = getattr(self, "_poll_logger", None)
+                if poll_logger is not None:
+                    poll_logger.log(
+                        event_type="POLL_ERROR",
+                        match_id=self._match_id,
+                        detail=str(exc)[:200],
+                    )
 
             if parsed_detail.get("winner_code"):
                 _log.info(
@@ -145,10 +194,12 @@ class MatchCollector:
         rapidapi_key: str,
         discovery_interval: int = 60,
         worker_poll_interval: int = 15,
+        poll_logger=None,
     ) -> None:
         self._rapidapi_key        = rapidapi_key
         self._discovery_interval  = discovery_interval
         self._worker_poll_interval = worker_poll_interval
+        self._poll_logger         = poll_logger
         self._active_lock   = threading.Lock()
         self._active: dict[Any, MatchWorker] = {}
         self._feed = TennisFeed(api_key=rapidapi_key)
@@ -189,10 +240,16 @@ class MatchCollector:
                 time.sleep(1)
 
     def _cycle(self) -> None:
+        poll_logger = getattr(self, "_poll_logger", None)
         try:
             raw_events = self._feed.get_live_matches_raw()
         except Exception as exc:
             _log.warning("collector failed to fetch live matches: %s", exc)
+            if poll_logger is not None:
+                poll_logger.log(
+                    event_type="POLL_ERROR",
+                    detail=str(exc)[:200],
+                )
             return
 
         live_ids: set = set()
@@ -206,10 +263,16 @@ class MatchCollector:
                 already_active = match_id in self._active
 
             if not already_active:
+                if poll_logger is not None:
+                    poll_logger.log(
+                        event_type="MATCH_DISCOVERED",
+                        match_id=match_id,
+                    )
                 worker = MatchWorker(
                     event=event,
                     rapidapi_key=self._rapidapi_key,
                     poll_interval=self._worker_poll_interval,
+                    poll_logger=poll_logger,
                 )
                 thread = threading.Thread(
                     target=worker.run,
@@ -225,6 +288,11 @@ class MatchCollector:
             for mid in finished:
                 self._active[mid].stop()
                 del self._active[mid]
+                if poll_logger is not None:
+                    poll_logger.log(
+                        event_type="MATCH_ENDED",
+                        match_id=mid,
+                    )
 
         with self._active_lock:
             match_labels = ", ".join(
