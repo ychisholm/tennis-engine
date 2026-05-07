@@ -188,6 +188,38 @@ _SETUP_STMTS = [
         category         VARCHAR
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS live_raw.api_call_log (
+        id              BIGSERIAL PRIMARY KEY,
+        timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        endpoint        TEXT NOT NULL,
+        request_path    TEXT NOT NULL,
+        request_params  JSONB,
+        match_id        VARCHAR(100),
+        http_status     INT,
+        latency_ms      INT,
+        response_summary JSONB,
+        raw_response_id BIGINT,
+        error           TEXT,
+        poll_cycle_id   UUID
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_api_call_log_match_id ON live_raw.api_call_log(match_id)",
+    "CREATE INDEX IF NOT EXISTS idx_api_call_log_timestamp ON live_raw.api_call_log(timestamp)",
+    "CREATE INDEX IF NOT EXISTS idx_api_call_log_endpoint ON live_raw.api_call_log(endpoint)",
+    "CREATE INDEX IF NOT EXISTS idx_api_call_log_poll_cycle ON live_raw.api_call_log(poll_cycle_id)",
+    """
+    CREATE TABLE IF NOT EXISTS live_raw.api_response_archive (
+        id          BIGSERIAL PRIMARY KEY,
+        timestamp   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        endpoint    TEXT NOT NULL,
+        match_id    VARCHAR(100),
+        raw_json    JSONB NOT NULL,
+        byte_size   INT
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_api_response_archive_match_id ON live_raw.api_response_archive(match_id)",
+    "CREATE INDEX IF NOT EXISTS idx_api_response_archive_timestamp ON live_raw.api_response_archive(timestamp)",
 ]
 
 _INSERT_RAW_POINT = """

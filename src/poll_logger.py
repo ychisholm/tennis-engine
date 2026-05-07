@@ -44,6 +44,12 @@ class PollLogger:
             ON poll_audit_log(match_id);
         CREATE INDEX IF NOT EXISTS idx_poll_audit_timestamp
             ON poll_audit_log(timestamp);
+        ALTER TABLE poll_audit_log
+            ADD COLUMN IF NOT EXISTS triggering_call_id BIGINT;
+        ALTER TABLE poll_audit_log
+            ADD COLUMN IF NOT EXISTS reason TEXT;
+        ALTER TABLE poll_audit_log
+            ADD COLUMN IF NOT EXISTS metadata JSONB;
         """
         try:
             with self._lock:
