@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import uuid
 from datetime import datetime, timezone
 from typing import Any
 
@@ -90,9 +91,12 @@ class MatchWorker:
             )
 
     def _poll(self) -> None:
+        cycle_id = uuid.uuid4()
         polled_at = datetime.now(timezone.utc)
         try:
-            raw_detail = self._feed.get_match_detail(self._match_id)
+            raw_detail = self._feed.get_match_detail(
+                self._match_id, poll_cycle_id=cycle_id,
+            )
             parsed_detail = self._feed.parse_match_detail(
                 raw_detail,
                 match_id=self._match_id,
@@ -113,6 +117,7 @@ class MatchWorker:
                     event_type="POLL_ERROR",
                     match_id=self._match_id,
                     detail=str(exc)[:200],
+                    poll_cycle_id=cycle_id,
                 )
             parsed_detail = None
 
@@ -137,11 +142,13 @@ class MatchWorker:
                         event_type="POINTS_RECEIVED",
                         match_id=self._match_id,
                         points_count=self._cumulative_points,
+                        poll_cycle_id=cycle_id,
                     )
                 else:
                     poll_logger.log(
                         event_type="NO_NEW_POINTS",
                         match_id=self._match_id,
+                        poll_cycle_id=cycle_id,
                     )
             self._last_score_state = score_state
 
@@ -160,6 +167,7 @@ class MatchWorker:
                         event_type="POLL_ERROR",
                         match_id=self._match_id,
                         detail=str(exc)[:200],
+                        poll_cycle_id=cycle_id,
                     )
 
             if parsed_detail.get("winner_code"):
@@ -240,15 +248,17 @@ class MatchCollector:
                 time.sleep(1)
 
     def _cycle(self) -> None:
+        cycle_id = uuid.uuid4()
         poll_logger = getattr(self, "_poll_logger", None)
         try:
-            raw_events = self._feed.get_live_matches_raw()
+            raw_events = self._feed.get_live_matches_raw(poll_cycle_id=cycle_id)
         except Exception as exc:
             _log.warning("collector failed to fetch live matches: %s", exc)
             if poll_logger is not None:
                 poll_logger.log(
                     event_type="POLL_ERROR",
                     detail=str(exc)[:200],
+                    poll_cycle_id=cycle_id,
                 )
             return
 
@@ -267,6 +277,7 @@ class MatchCollector:
                     poll_logger.log(
                         event_type="MATCH_DISCOVERED",
                         match_id=match_id,
+                        poll_cycle_id=cycle_id,
                     )
                 worker = MatchWorker(
                     event=event,
@@ -292,6 +303,7 @@ class MatchCollector:
                     poll_logger.log(
                         event_type="MATCH_ENDED",
                         match_id=mid,
+                        poll_cycle_id=cycle_id,
                     )
 
         with self._active_lock:

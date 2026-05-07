@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from typing import Any
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -59,17 +60,24 @@ class MatchScheduler:
 
     def _check_schedule(self) -> None:
         """Decide current state by inspecting live and upcoming matches."""
+        cycle_id = uuid.uuid4()
         poll_logger = getattr(self, "_poll_logger", None)
         if poll_logger is not None:
-            poll_logger.log(event_type="TICK_START", detail=self._state)
+            poll_logger.log(
+                event_type="TICK_START",
+                detail=self._state,
+                poll_cycle_id=cycle_id,
+            )
         try:
-            self._upcoming_matches = self._feed.get_upcoming_matches()
+            self._upcoming_matches = self._feed.get_upcoming_matches(
+                poll_cycle_id=cycle_id,
+            )
         except Exception as exc:
             _log.warning("get_upcoming_matches failed: %s", exc)
             self._upcoming_matches = []
 
         try:
-            live_events = self._feed.get_live_matches_raw()
+            live_events = self._feed.get_live_matches_raw(poll_cycle_id=cycle_id)
         except Exception as exc:
             _log.warning("get_live_matches_raw failed: %s", exc)
             live_events = []
@@ -78,7 +86,7 @@ class MatchScheduler:
 
         if live_qualifying:
             if self._state != "LIVE":
-                self._enter_live()
+                self._enter_live(cycle_id=cycle_id)
             return
 
         now = time.time()
@@ -89,7 +97,7 @@ class MatchScheduler:
 
         if imminent:
             if self._state != "PRE_MATCH":
-                self._enter_pre_match()
+                self._enter_pre_match(cycle_id=cycle_id)
             for m in imminent:
                 eta = int(m["scheduled_start_unix"] - now)
                 _log.info(
@@ -100,7 +108,7 @@ class MatchScheduler:
             return
 
         if self._state != "IDLE":
-            self._enter_idle()
+            self._enter_idle(cycle_id=cycle_id)
 
         future = [
             m for m in self._upcoming_matches
@@ -118,7 +126,7 @@ class MatchScheduler:
         else:
             _log.info("IDLE — no upcoming matches in schedule window")
 
-    def _enter_idle(self) -> None:
+    def _enter_idle(self, *, cycle_id: "uuid.UUID | None" = None) -> None:
         prev = self._state
         _log.info("Entering IDLE state")
         self._state = "IDLE"
@@ -126,20 +134,24 @@ class MatchScheduler:
         poll_logger = getattr(self, "_poll_logger", None)
         if poll_logger is not None:
             poll_logger.log(
-                event_type="STATE_TRANSITION", detail=f"{prev}->IDLE"
+                event_type="STATE_TRANSITION",
+                detail=f"{prev}->IDLE",
+                poll_cycle_id=cycle_id,
             )
 
-    def _enter_pre_match(self) -> None:
+    def _enter_pre_match(self, *, cycle_id: "uuid.UUID | None" = None) -> None:
         prev = self._state
         _log.info("Entering PRE_MATCH state — armed for upcoming match")
         self._state = "PRE_MATCH"
         poll_logger = getattr(self, "_poll_logger", None)
         if poll_logger is not None:
             poll_logger.log(
-                event_type="STATE_TRANSITION", detail=f"{prev}->PRE_MATCH"
+                event_type="STATE_TRANSITION",
+                detail=f"{prev}->PRE_MATCH",
+                poll_cycle_id=cycle_id,
             )
 
-    def _enter_live(self) -> None:
+    def _enter_live(self, *, cycle_id: "uuid.UUID | None" = None) -> None:
         prev = self._state
         _log.info("Entering LIVE state — starting live polling")
         self._state = "LIVE"
@@ -147,7 +159,9 @@ class MatchScheduler:
         poll_logger = getattr(self, "_poll_logger", None)
         if poll_logger is not None:
             poll_logger.log(
-                event_type="STATE_TRANSITION", detail=f"{prev}->LIVE"
+                event_type="STATE_TRANSITION",
+                detail=f"{prev}->LIVE",
+                poll_cycle_id=cycle_id,
             )
 
 

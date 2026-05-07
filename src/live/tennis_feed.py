@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -48,6 +49,7 @@ class TennisFeed:
         latency_ms: int | None,
         raw_response: Any,
         error: str | None,
+        poll_cycle_id: "uuid.UUID | None" = None,
     ) -> None:
         if self._api_logger is None:
             return
@@ -68,6 +70,7 @@ class TennisFeed:
                 response_summary=summary,
                 raw_response=raw_response,
                 error=error,
+                poll_cycle_id=poll_cycle_id,
             )
         except Exception as exc:
             _log.warning("API audit logging failed: %s", exc)
@@ -79,6 +82,7 @@ class TennisFeed:
         endpoint: str,
         params: dict | None = None,
         match_id: str | int | None = None,
+        poll_cycle_id: "uuid.UUID | None" = None,
     ) -> Any:
         url = f"{_BASE_URL}{path}"
         last_exc: Exception = RuntimeError("No attempts made")
@@ -97,6 +101,7 @@ class TennisFeed:
                     self._log_attempt(
                         endpoint, path, params, match_id,
                         http_status, latency_ms, raw_response, None,
+                        poll_cycle_id=poll_cycle_id,
                     )
                     return raw_response
                 error = f"HTTP {resp.status_code} from {path}: {resp.text[:200]}"
@@ -108,16 +113,18 @@ class TennisFeed:
             self._log_attempt(
                 endpoint, path, params, match_id,
                 http_status, latency_ms, raw_response, error,
+                poll_cycle_id=poll_cycle_id,
             )
             if attempt < _MAX_RETRIES - 1:
                 time.sleep(_RETRY_DELAY)
         raise last_exc
 
-    def get_live_matches(self) -> list[dict]:
+    def get_live_matches(self, *, poll_cycle_id: "uuid.UUID | None" = None) -> list[dict]:
         data = self._get(
             "/api/tennis/events/live",
             endpoint="live_matches",
             params={},
+            poll_cycle_id=poll_cycle_id,
         )
         events = data.get("events", data) if isinstance(data, dict) else data
         if not isinstance(events, list):
@@ -146,30 +153,43 @@ class TennisFeed:
             })
         return result
 
-    def get_live_matches_raw(self) -> list[dict]:
+    def get_live_matches_raw(self, *, poll_cycle_id: "uuid.UUID | None" = None) -> list[dict]:
         """Returns full raw event dicts from /api/tennis/events/live."""
         data = self._get(
             "/api/tennis/events/live",
             endpoint="live_matches",
             params={},
+            poll_cycle_id=poll_cycle_id,
         )
         events = data.get("events", data) if isinstance(data, dict) else data
         return events if isinstance(events, list) else []
 
-    def get_point_by_point(self, match_id: int | str) -> dict:
+    def get_point_by_point(
+        self,
+        match_id: int | str,
+        *,
+        poll_cycle_id: "uuid.UUID | None" = None,
+    ) -> dict:
         return self._get(
             f"/api/tennis/event/{match_id}/point-by-point",
             endpoint="point_by_point",
             params={"match_id": str(match_id)},
             match_id=str(match_id),
+            poll_cycle_id=poll_cycle_id,
         )
 
-    def get_match_detail(self, match_id: int | str) -> dict:
+    def get_match_detail(
+        self,
+        match_id: int | str,
+        *,
+        poll_cycle_id: "uuid.UUID | None" = None,
+    ) -> dict:
         return self._get(
             f"/api/tennis/event/{match_id}",
             endpoint="match_details",
             params={"match_id": str(match_id)},
             match_id=str(match_id),
+            poll_cycle_id=poll_cycle_id,
         )
 
     def parse_match_detail(
@@ -205,9 +225,17 @@ class TennisFeed:
             "category": category,
         }
 
-    def get_upcoming_matches(self, days_ahead: int = 1) -> list[dict]:
+    def get_upcoming_matches(
+        self,
+        days_ahead: int = 1,
+        *,
+        poll_cycle_id: "uuid.UUID | None" = None,
+    ) -> list[dict]:
         """Return scheduled ATP/WTA singles matches for today and the next
-        ``days_ahead`` days. Matches lacking ``startTimestamp`` are skipped."""
+        ``days_ahead`` days. Matches lacking ``startTimestamp`` are skipped.
+
+        All day-by-day API calls share the supplied poll_cycle_id since they
+        belong to one logical request."""
         today = datetime.now(timezone.utc).date()
         results: list[dict] = []
         for offset in range(days_ahead + 1):
@@ -222,6 +250,7 @@ class TennisFeed:
                         "date_month": day.month,
                         "date_year": day.year,
                     },
+                    poll_cycle_id=poll_cycle_id,
                 )
             except Exception:
                 continue

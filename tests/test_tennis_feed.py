@@ -464,6 +464,70 @@ def test_latency_ms_non_negative_int_on_success(monkeypatch):
     assert kwargs["latency_ms"] >= 0
 
 
+# ---------------------------------------------------------------------------
+# F. poll_cycle_id propagation
+# ---------------------------------------------------------------------------
+
+import uuid as _uuid  # noqa: E402
+
+
+def test_poll_cycle_id_propagates_to_log_call(monkeypatch):
+    body = {"event": {"id": 123, "status": {"type": "inprogress"}}}
+    feed, fake_logger = _build_logged_feed(monkeypatch, body)
+
+    cycle = _uuid.uuid4()
+    feed.get_match_detail(123, poll_cycle_id=cycle)
+
+    fake_logger.log_call.assert_called_once()
+    kwargs = fake_logger.log_call.call_args.kwargs
+    assert kwargs["poll_cycle_id"] is cycle
+
+
+def test_poll_cycle_id_defaults_to_none_when_omitted(monkeypatch):
+    body = {"event": {"id": 123, "status": {"type": "inprogress"}}}
+    feed, fake_logger = _build_logged_feed(monkeypatch, body)
+
+    feed.get_match_detail(123)
+
+    kwargs = fake_logger.log_call.call_args.kwargs
+    assert kwargs["poll_cycle_id"] is None
+
+
+def test_get_upcoming_matches_shares_one_poll_cycle_id_across_days(monkeypatch):
+    body = {"events": []}
+    feed, fake_logger = _build_logged_feed(monkeypatch, body)
+
+    cycle = _uuid.uuid4()
+    feed.get_upcoming_matches(days_ahead=1, poll_cycle_id=cycle)
+
+    assert fake_logger.log_call.call_count == 2
+    cycle_ids = [c.kwargs["poll_cycle_id"] for c in fake_logger.log_call.call_args_list]
+    assert all(c is cycle for c in cycle_ids), (
+        "all day-by-day calls must share the same poll_cycle_id"
+    )
+
+
+def test_poll_cycle_id_propagates_through_retries(monkeypatch):
+    """Each retry attempt's audit row carries the same cycle_id."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    fake_logger = MagicMock()
+    feed = TennisFeed(api_key="x", api_logger=fake_logger)
+
+    monkeypatch.setattr(
+        "src.live.tennis_feed.requests.get",
+        lambda *a, **kw: _err_response(500, "boom"),
+    )
+    monkeypatch.setattr("src.live.tennis_feed.time.sleep", lambda *_: None)
+
+    cycle = _uuid.uuid4()
+    with pytest.raises(ValueError):
+        feed.get_match_detail(7, poll_cycle_id=cycle)
+
+    assert fake_logger.log_call.call_count == 3
+    for call in fake_logger.log_call.call_args_list:
+        assert call.kwargs["poll_cycle_id"] is cycle
+
+
 def test_latency_ms_non_negative_int_on_error(monkeypatch):
     monkeypatch.delenv("DATABASE_URL", raising=False)
     fake_logger = MagicMock()

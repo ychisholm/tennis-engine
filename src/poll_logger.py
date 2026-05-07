@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import uuid
 from typing import Optional
 
 import psycopg2
@@ -50,6 +51,10 @@ class PollLogger:
             ADD COLUMN IF NOT EXISTS reason TEXT;
         ALTER TABLE poll_audit_log
             ADD COLUMN IF NOT EXISTS metadata JSONB;
+        ALTER TABLE public.poll_audit_log
+            ADD COLUMN IF NOT EXISTS poll_cycle_id UUID;
+        CREATE INDEX IF NOT EXISTS poll_audit_log_poll_cycle_idx
+            ON public.poll_audit_log (poll_cycle_id);
         """
         try:
             with self._lock:
@@ -69,6 +74,7 @@ class PollLogger:
         match_id: Optional[object] = None,
         detail: Optional[str] = None,
         points_count: Optional[int] = None,
+        poll_cycle_id: Optional[uuid.UUID] = None,
     ) -> None:
         try:
             with self._lock:
@@ -76,14 +82,15 @@ class PollLogger:
                     cur.execute(
                         """
                         INSERT INTO poll_audit_log
-                            (event_type, match_id, detail, points_count)
-                        VALUES (%s, %s, %s, %s)
+                            (event_type, match_id, detail, points_count, poll_cycle_id)
+                        VALUES (%s, %s, %s, %s, %s)
                         """,
                         (
                             event_type,
                             str(match_id) if match_id is not None else None,
                             detail,
                             points_count,
+                            str(poll_cycle_id) if poll_cycle_id is not None else None,
                         ),
                     )
                 self._conn.commit()
