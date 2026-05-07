@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import requests
 from dotenv import load_dotenv
 
+if TYPE_CHECKING:
+    from src.live.api_logger import ApiLogger
+
 load_dotenv()
+
+_log = logging.getLogger(__name__)
 
 _BASE_URL = "https://tennisapi1.p.rapidapi.com"
 _MAX_RETRIES = 3
@@ -16,32 +22,109 @@ _RETRY_DELAY = 1.0
 
 
 class TennisFeed:
-    def __init__(self, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        api_logger: "ApiLogger | None" = None,
+    ) -> None:
         self._api_key = api_key or os.environ["RAPIDAPI_KEY"]
         self._headers = {
             "x-rapidapi-host": "tennisapi1.p.rapidapi.com",
             "x-rapidapi-key": self._api_key,
         }
+        if api_logger is not None:
+            self._api_logger = api_logger
+        elif os.getenv("DATABASE_URL"):
+            try:
+                from src.live.api_logger import ApiLogger
+                self._api_logger = ApiLogger()
+            except Exception as exc:
+                _log.warning("ApiLogger construction failed: %s", exc)
+                self._api_logger = None
+        else:
+            self._api_logger = None
 
-    def _get(self, path: str) -> Any:
+    def _log_attempt(
+        self,
+        endpoint: str,
+        request_path: str,
+        params: dict | None,
+        match_id: str | int | None,
+        http_status: int | None,
+        latency_ms: int | None,
+        raw_response: Any,
+        error: str | None,
+    ) -> None:
+        if self._api_logger is None:
+            return
+        try:
+            from src.live.api_logger import summarize_response
+            summary = (
+                summarize_response(endpoint, raw_response)
+                if raw_response is not None
+                else None
+            )
+            self._api_logger.log_call(
+                endpoint=endpoint,
+                request_path=request_path,
+                request_params=params,
+                match_id=match_id,
+                http_status=http_status,
+                latency_ms=latency_ms,
+                response_summary=summary,
+                raw_response=raw_response,
+                error=error,
+            )
+        except Exception as exc:
+            _log.warning("API audit logging failed: %s", exc)
+
+    def _get(
+        self,
+        path: str,
+        *,
+        endpoint: str,
+        params: dict | None = None,
+        match_id: str | int | None = None,
+    ) -> Any:
         url = f"{_BASE_URL}{path}"
         last_exc: Exception = RuntimeError("No attempts made")
         for attempt in range(_MAX_RETRIES):
+            start = time.monotonic()
+            http_status: int | None = None
+            latency_ms: int | None = None
+            raw_response: Any = None
+            error: str | None = None
             try:
                 resp = requests.get(url, headers=self._headers, timeout=10)
+                latency_ms = int((time.monotonic() - start) * 1000)
+                http_status = resp.status_code
                 if resp.status_code == 200:
-                    return resp.json()
-                last_exc = ValueError(
-                    f"HTTP {resp.status_code} from {path}: {resp.text[:200]}"
-                )
+                    raw_response = resp.json()
+                    self._log_attempt(
+                        endpoint, path, params, match_id,
+                        http_status, latency_ms, raw_response, None,
+                    )
+                    return raw_response
+                error = f"HTTP {resp.status_code} from {path}: {resp.text[:200]}"
+                last_exc = ValueError(error)
             except requests.RequestException as exc:
+                latency_ms = int((time.monotonic() - start) * 1000)
+                error = str(exc) or exc.__class__.__name__
                 last_exc = exc
+            self._log_attempt(
+                endpoint, path, params, match_id,
+                http_status, latency_ms, raw_response, error,
+            )
             if attempt < _MAX_RETRIES - 1:
                 time.sleep(_RETRY_DELAY)
         raise last_exc
 
     def get_live_matches(self) -> list[dict]:
-        data = self._get("/api/tennis/events/live")
+        data = self._get(
+            "/api/tennis/events/live",
+            endpoint="live_matches",
+            params={},
+        )
         events = data.get("events", data) if isinstance(data, dict) else data
         if not isinstance(events, list):
             return []
@@ -71,15 +154,29 @@ class TennisFeed:
 
     def get_live_matches_raw(self) -> list[dict]:
         """Returns full raw event dicts from /api/tennis/events/live."""
-        data = self._get("/api/tennis/events/live")
+        data = self._get(
+            "/api/tennis/events/live",
+            endpoint="live_matches",
+            params={},
+        )
         events = data.get("events", data) if isinstance(data, dict) else data
         return events if isinstance(events, list) else []
 
     def get_point_by_point(self, match_id: int | str) -> dict:
-        return self._get(f"/api/tennis/event/{match_id}/point-by-point")
+        return self._get(
+            f"/api/tennis/event/{match_id}/point-by-point",
+            endpoint="point_by_point",
+            params={"match_id": str(match_id)},
+            match_id=str(match_id),
+        )
 
     def get_match_detail(self, match_id: int | str) -> dict:
-        return self._get(f"/api/tennis/event/{match_id}")
+        return self._get(
+            f"/api/tennis/event/{match_id}",
+            endpoint="match_details",
+            params={"match_id": str(match_id)},
+            match_id=str(match_id),
+        )
 
     def parse_match_detail(
         self,
@@ -123,7 +220,15 @@ class TennisFeed:
             day = today + timedelta(days=offset)
             path = f"/api/tennis/events/{day.day}/{day.month}/{day.year}"
             try:
-                data = self._get(path)
+                data = self._get(
+                    path,
+                    endpoint="events_by_date",
+                    params={
+                        "date_day": day.day,
+                        "date_month": day.month,
+                        "date_year": day.year,
+                    },
+                )
             except Exception:
                 continue
             events = data.get("events", data) if isinstance(data, dict) else data
