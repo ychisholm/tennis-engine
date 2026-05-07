@@ -583,3 +583,152 @@ class TestApiLoggerDB:
                     "DELETE FROM live_raw.api_call_log WHERE id = %s", [call_id]
                 )
             db_logger._conn.commit()
+
+
+# ===========================================================================
+# Phase 3.1 — process-wide singleton accessor
+# ===========================================================================
+
+import logging  # noqa: E402
+import threading  # noqa: E402
+
+import src.live.api_logger as api_logger_mod  # noqa: E402
+from src.live.api_logger import (  # noqa: E402
+    _reset_default_logger_for_testing,
+    get_default_logger,
+)
+
+
+@pytest.fixture(autouse=False)
+def _reset_singleton():
+    """Each singleton test starts and ends with a clean global state."""
+    _reset_default_logger_for_testing()
+    yield
+    _reset_default_logger_for_testing()
+
+
+class TestSingletonIdentity:
+    def test_two_calls_return_same_instance(self, monkeypatch, _reset_singleton):
+        monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+
+        fake = MagicMock(spec=ApiLogger)
+        ctor = MagicMock(return_value=fake)
+        monkeypatch.setattr(api_logger_mod, "ApiLogger", ctor)
+
+        first = get_default_logger()
+        second = get_default_logger()
+
+        assert first is fake
+        assert first is second
+        assert ctor.call_count == 1
+
+    def test_reset_yields_new_instance(self, monkeypatch, _reset_singleton):
+        monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+
+        instances = [MagicMock(spec=ApiLogger), MagicMock(spec=ApiLogger)]
+        ctor = MagicMock(side_effect=instances)
+        monkeypatch.setattr(api_logger_mod, "ApiLogger", ctor)
+
+        first = get_default_logger()
+        _reset_default_logger_for_testing()
+        second = get_default_logger()
+
+        assert first is instances[0]
+        assert second is instances[1]
+        assert first is not second
+        assert ctor.call_count == 2
+
+
+class TestSingletonDatabaseUrlHandling:
+    def test_no_database_url_returns_none_silently(
+        self, monkeypatch, caplog, _reset_singleton
+    ):
+        monkeypatch.delenv("DATABASE_URL", raising=False)
+
+        ctor = MagicMock()
+        monkeypatch.setattr(api_logger_mod, "ApiLogger", ctor)
+
+        with caplog.at_level(logging.WARNING, logger="src.live.api_logger"):
+            result = get_default_logger()
+
+        assert result is None
+        ctor.assert_not_called()
+        assert not any(
+            "ApiLogger" in r.getMessage() for r in caplog.records
+        )
+
+    def test_construction_failure_logs_warning_and_returns_none(
+        self, monkeypatch, caplog, _reset_singleton
+    ):
+        monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+
+        ctor = MagicMock(side_effect=RuntimeError("connection refused"))
+        monkeypatch.setattr(api_logger_mod, "ApiLogger", ctor)
+
+        with caplog.at_level(logging.WARNING, logger="src.live.api_logger"):
+            result = get_default_logger()
+
+        assert result is None
+        ctor.assert_called_once()
+        assert any(
+            "Default ApiLogger construction failed" in r.getMessage()
+            for r in caplog.records
+        )
+
+    def test_failed_init_is_memoized(self, monkeypatch, _reset_singleton):
+        """After construction fails, subsequent calls do NOT retry."""
+        monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+
+        ctor = MagicMock(side_effect=RuntimeError("nope"))
+        monkeypatch.setattr(api_logger_mod, "ApiLogger", ctor)
+
+        for _ in range(5):
+            assert get_default_logger() is None
+
+        assert ctor.call_count == 1
+
+
+class TestSingletonThreadSafety:
+    def test_concurrent_callers_share_one_instance(
+        self, monkeypatch, _reset_singleton
+    ):
+        monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
+
+        # Slow constructor so threads pile up at the lock and we exercise the
+        # double-checked path inside the critical section.
+        construct_event = threading.Event()
+
+        def slow_ctor(*a, **kw):
+            construct_event.wait(timeout=2.0)
+            return MagicMock(spec=ApiLogger)
+
+        ctor = MagicMock(side_effect=slow_ctor)
+        monkeypatch.setattr(api_logger_mod, "ApiLogger", ctor)
+
+        N = 10
+        barrier = threading.Barrier(N)
+        results: list = [None] * N
+
+        def worker(i: int) -> None:
+            barrier.wait()
+            results[i] = get_default_logger()
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(N)]
+        for t in threads:
+            t.start()
+
+        # Let the constructor complete after all threads have queued up at
+        # the lock. A small sleep is the simplest synchronization here.
+        import time
+        time.sleep(0.1)
+        construct_event.set()
+
+        for t in threads:
+            t.join(timeout=5.0)
+            assert not t.is_alive()
+
+        assert ctor.call_count == 1
+        first = results[0]
+        assert first is not None
+        for r in results:
+            assert r is first

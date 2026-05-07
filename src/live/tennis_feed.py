@@ -34,15 +34,9 @@ class TennisFeed:
         }
         if api_logger is not None:
             self._api_logger = api_logger
-        elif os.getenv("DATABASE_URL"):
-            try:
-                from src.live.api_logger import ApiLogger
-                self._api_logger = ApiLogger()
-            except Exception as exc:
-                _log.warning("ApiLogger construction failed: %s", exc)
-                self._api_logger = None
         else:
-            self._api_logger = None
+            from src.live.api_logger import get_default_logger
+            self._api_logger = get_default_logger()
 
     def _log_attempt(
         self,

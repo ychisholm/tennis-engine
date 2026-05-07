@@ -121,6 +121,76 @@ class ApiLogger:
 
 
 # ---------------------------------------------------------------------------
+# Process-wide singleton accessor.
+#
+# Phase 3.1: every TennisFeed in the same process shares one ApiLogger and
+# therefore one PostgreSQL connection. This prevents connection-pool
+# exhaustion on managed databases with low max_connections caps.
+# ---------------------------------------------------------------------------
+
+_default_logger: "ApiLogger | None" = None
+_default_logger_init_attempted: bool = False
+_default_logger_lock = threading.Lock()
+
+
+def get_default_logger() -> "ApiLogger | None":
+    """Return the process-wide default ApiLogger, or None.
+
+    Lazy-initialized on first call. Returns None permanently for the life
+    of the process if DATABASE_URL is unset or if construction fails.
+    Construction is attempted exactly once; subsequent calls return the
+    memoized result. To re-attempt after a transient DB outage, restart
+    the process.
+
+    Thread-safe via double-checked locking.
+    """
+    global _default_logger, _default_logger_init_attempted
+
+    if _default_logger_init_attempted:
+        return _default_logger
+
+    with _default_logger_lock:
+        if _default_logger_init_attempted:
+            return _default_logger
+
+        if not os.getenv("DATABASE_URL"):
+            _default_logger_init_attempted = True
+            return None
+
+        try:
+            _default_logger = ApiLogger()
+        except Exception as exc:
+            _log.warning(
+                "Default ApiLogger construction failed (audit logging disabled "
+                "for this process until restart): %s",
+                exc,
+            )
+        # Set the flag ONLY after construction has settled. Setting it before
+        # would let the outside fast-path return _default_logger=None while a
+        # slow ApiLogger() is still mid-construction in another thread.
+        _default_logger_init_attempted = True
+
+    return _default_logger
+
+
+def _reset_default_logger_for_testing() -> None:
+    """Reset the singleton state. ONLY for use in tests.
+
+    Closes any existing logger connection and clears the init-attempted
+    flag so the next get_default_logger() call re-runs initialization.
+    """
+    global _default_logger, _default_logger_init_attempted
+    with _default_logger_lock:
+        if _default_logger is not None:
+            try:
+                _default_logger.close()
+            except Exception:
+                pass
+        _default_logger = None
+        _default_logger_init_attempted = False
+
+
+# ---------------------------------------------------------------------------
 # Response summarizers
 #
 # Pure functions. Must never raise — a malformed payload from the upstream API

@@ -194,49 +194,53 @@ def _err_response(status, text="server error"):
 # ---------------------------------------------------------------------------
 
 
-def test_init_no_database_url_yields_none_logger(monkeypatch, caplog):
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    with caplog.at_level(logging.WARNING, logger="src.live.tennis_feed"):
-        feed = TennisFeed(api_key="x")
+import src.live.api_logger as api_logger_mod  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_default_logger_singleton():
+    """Each test starts with a clean process-wide ApiLogger singleton."""
+    api_logger_mod._reset_default_logger_for_testing()
+    yield
+    api_logger_mod._reset_default_logger_for_testing()
+
+
+def test_init_default_singleton_is_none_yields_none_logger(monkeypatch):
+    monkeypatch.setattr(api_logger_mod, "get_default_logger", lambda: None)
+    feed = TennisFeed(api_key="x")
     assert feed._api_logger is None
-    # Silent path: no warning emitted.
-    assert not any(
-        "ApiLogger" in r.getMessage() for r in caplog.records
-    )
 
 
-def test_init_apilogger_failure_is_swallowed(monkeypatch, caplog):
-    monkeypatch.setenv("DATABASE_URL", "postgresql://fake")
-
-    class BoomLogger:
-        def __init__(self, *a, **kw):
-            raise RuntimeError("connection refused")
-
-    # The default-construction path does `from src.live.api_logger import
-    # ApiLogger` inside TennisFeed.__init__; patching the attribute on the
-    # source module is what that import binds to.
-    import src.live.api_logger as api_logger_mod
-    monkeypatch.setattr(api_logger_mod, "ApiLogger", BoomLogger)
-
-    with caplog.at_level(logging.WARNING, logger="src.live.tennis_feed"):
-        feed = TennisFeed(api_key="x")
-
-    assert feed._api_logger is None
-    assert any(
-        "ApiLogger" in r.getMessage() for r in caplog.records
-    ), "expected a WARNING record about ApiLogger"
-
-
-def test_init_explicit_apilogger_used_directly(monkeypatch):
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+def test_init_default_singleton_is_used_when_set(monkeypatch):
     fake = MagicMock()
-    feed = TennisFeed(api_key="x", api_logger=fake)
+    monkeypatch.setattr(api_logger_mod, "get_default_logger", lambda: fake)
+    feed = TennisFeed(api_key="x")
     assert feed._api_logger is fake
+
+
+def test_two_feeds_share_same_singleton(monkeypatch):
+    fake = MagicMock()
+    monkeypatch.setattr(api_logger_mod, "get_default_logger", lambda: fake)
+    feed1 = TennisFeed(api_key="x")
+    feed2 = TennisFeed(api_key="y")
+    assert feed1._api_logger is feed2._api_logger
+    assert feed1._api_logger is fake
+
+
+def test_init_explicit_apilogger_bypasses_singleton(monkeypatch):
+    """Explicit api_logger= must override the singleton entirely."""
+    singleton = MagicMock(name="singleton")
+    explicit = MagicMock(name="explicit")
+    monkeypatch.setattr(api_logger_mod, "get_default_logger", lambda: singleton)
+
+    feed = TennisFeed(api_key="x", api_logger=explicit)
+    assert feed._api_logger is explicit
+    assert feed._api_logger is not singleton
 
 
 def test_get_works_with_no_logger(monkeypatch):
     """Regression: existing call sites (no logger configured) keep working."""
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setattr(api_logger_mod, "get_default_logger", lambda: None)
     feed = TennisFeed(api_key="x")
     assert feed._api_logger is None
 
