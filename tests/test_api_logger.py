@@ -478,6 +478,92 @@ class TestApiLoggerDB:
         )
         assert row[0] is None
 
+    def test_events_by_date_does_not_archive(self, db_logger):
+        """Phase 3.2: events_by_date is excluded from the archive allow-list.
+        Responses are 2-5 MB and add no diagnostic value for gap debugging."""
+        raw = {"events": [{"id": 1, "tournament": {"category": {"slug": "atp"}}}]}
+        call_id = db_logger.log_call(
+            endpoint="events_by_date",
+            request_path="/api/tennis/events/7/5/2026",
+            match_id=_SENTINEL_MID,
+            http_status=200,
+            latency_ms=120,
+            response_summary={"total_events": 1},
+            raw_response=raw,
+        )
+        assert call_id is not None
+        row = _fetchone(
+            db_logger,
+            "SELECT raw_response_id FROM live_raw.api_call_log WHERE id = %s",
+            [call_id],
+        )
+        assert row[0] is None, "events_by_date must not be archived"
+
+    def test_archive_allow_list_yields_two_rows_across_four_endpoints(
+        self, db_logger
+    ):
+        """Calling log_call once per endpoint with raw_response set should
+        produce 4 api_call_log rows but only 2 api_response_archive rows
+        (live_matches and match_details — the allow-list)."""
+        # Use a dedicated sentinel so this test isolates from other tests'
+        # rows in the shared fixture's cleanup query.
+        sentinel = "99999_archive_allowlist_test"
+        try:
+            call_ids = []
+            for endpoint, raw in [
+                ("live_matches", {"events": []}),
+                ("events_by_date", {"events": []}),
+                ("match_details", {"event": {"id": 1}}),
+                ("point_by_point", {"pointByPoint": []}),
+            ]:
+                call_id = db_logger.log_call(
+                    endpoint=endpoint,
+                    request_path=f"/api/tennis/{endpoint}",
+                    match_id=sentinel,
+                    http_status=200,
+                    latency_ms=10,
+                    raw_response=raw,
+                )
+                assert call_id is not None
+                call_ids.append(call_id)
+
+            with db_logger._conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM live_raw.api_call_log WHERE match_id = %s",
+                    [sentinel],
+                )
+                call_log_count = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT COUNT(*) FROM live_raw.api_response_archive WHERE match_id = %s",
+                    [sentinel],
+                )
+                archive_count = cur.fetchone()[0]
+                cur.execute(
+                    """
+                    SELECT endpoint
+                    FROM live_raw.api_response_archive
+                    WHERE match_id = %s
+                    ORDER BY endpoint
+                    """,
+                    [sentinel],
+                )
+                archived_endpoints = [r[0] for r in cur.fetchall()]
+
+            assert call_log_count == 4
+            assert archive_count == 2
+            assert archived_endpoints == ["live_matches", "match_details"]
+        finally:
+            with db_logger._conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM live_raw.api_call_log WHERE match_id = %s",
+                    [sentinel],
+                )
+                cur.execute(
+                    "DELETE FROM live_raw.api_response_archive WHERE match_id = %s",
+                    [sentinel],
+                )
+            db_logger._conn.commit()
+
     def test_raw_response_none_never_archives(self, db_logger):
         for endpoint in ("live_matches", "events_by_date", "match_details"):
             call_id = db_logger.log_call(

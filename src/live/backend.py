@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -196,8 +197,7 @@ def _trim_unplayed_sets(set_a: list, set_b: list, sets_a: int, sets_b: int, is_f
 
 @app.get("/matches")
 def list_matches():
-    conn = _conn()
-    try:
+    with closing(_conn()) as conn:
         rows = _safe_query(conn, """
             WITH latest AS (
                 SELECT DISTINCT ON (match_id) *
@@ -222,6 +222,7 @@ def list_matches():
             FROM latest
             ORDER BY polled_at DESC
         """)
+        conn.commit()
         for row in rows:
             is_final = (
                 (row.get("status") or "").lower() == "finished"
@@ -237,8 +238,6 @@ def list_matches():
             row["set_scores_a"] = sa
             row["set_scores_b"] = sb
             row["is_final"] = is_final
-    finally:
-        conn.close()
     return rows
 
 
@@ -246,8 +245,7 @@ def list_matches():
 def list_live_matches():
     if not ACTIVE_MATCH_IDS:
         return []
-    conn = _conn()
-    try:
+    with closing(_conn()) as conn:
         result = _safe_query(conn, """
             SELECT DISTINCT ON (match_id)
                 match_id,
@@ -269,8 +267,7 @@ def list_live_matches():
             WHERE match_id = ANY(%s)
             ORDER BY match_id, polled_at DESC
         """, [list(ACTIVE_MATCH_IDS)])
-    finally:
-        conn.close()
+        conn.commit()
     # Fall back to in-memory COUNTRY_MAP for matches whose first poll hasn't
     # yet persisted country to the DB.
     for row in result:
@@ -285,8 +282,7 @@ def list_live_matches():
 
 @app.get("/match/{match_id}")
 def get_match(match_id: int):
-    conn = _conn()
-    try:
+    with closing(_conn()) as conn:
         rows = _safe_query(conn, """
             SELECT
                 match_id, player_a, player_b, polled_at, status,
@@ -304,15 +300,13 @@ def get_match(match_id: int):
                 home_current_games, away_current_games,
                 polled_at
         """, [match_id])
-    finally:
-        conn.close()
+        conn.commit()
     return _enrich_detail_points(rows)
 
 
 @app.get("/match/{match_id}/latest")
 def get_latest(match_id: int):
-    conn = _conn()
-    try:
+    with closing(_conn()) as conn:
         result = _safe_query(conn, f"""
             SELECT {_DL_COLS} FROM (
                 SELECT * FROM (
@@ -327,15 +321,13 @@ def get_latest(match_id: int):
             ) last20
             ORDER BY point_num ASC
         """, [match_id])
-    finally:
-        conn.close()
+        conn.commit()
     return result
 
 
 @app.get("/live_summary")
 def live_summary():
-    conn = _conn()
-    try:
+    with closing(_conn()) as conn:
         result = _safe_query(conn, """
             SELECT match_id, player_a, player_b, sets_a, sets_b, games_a, games_b
             FROM (
@@ -349,8 +341,7 @@ def live_summary():
             WHERE rn = 1
             ORDER BY match_id DESC
         """)
-    finally:
-        conn.close()
+        conn.commit()
     return result
 
 

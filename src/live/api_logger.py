@@ -24,7 +24,13 @@ from psycopg2.extras import Json
 
 _log = logging.getLogger(__name__)
 
-_ARCHIVE_ENDPOINTS = frozenset({"live_matches", "events_by_date", "match_details"})
+# Endpoints whose parsed JSON body is archived to live_raw.api_response_archive.
+# events_by_date is intentionally excluded: its responses are 2-5 MB each
+# (hundreds of events with full nested team/tournament/score objects polled
+# every 5 minutes by the dashboard), and they add no diagnostic value for the
+# in-match gap-debugging use case the audit log was built for. Call metadata
+# still flows to api_call_log for all four endpoints.
+_ARCHIVE_ENDPOINTS = frozenset({"live_matches", "match_details"})
 
 _KNOWN_ENDPOINTS = frozenset(
     {"live_matches", "events_by_date", "match_details", "point_by_point"}
