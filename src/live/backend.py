@@ -247,27 +247,33 @@ def list_live_matches():
         return []
     with closing(_conn()) as conn:
         result = _safe_query(conn, """
-            SELECT DISTINCT ON (match_id)
-                match_id,
-                player_a,
-                player_b,
-                home_sets_won,
-                away_sets_won,
-                home_current_games  AS home_games_won,
-                away_current_games  AS away_games_won,
-                home_current_point  AS home_point,
-                away_current_point  AS away_point,
-                NULL::VARCHAR       AS server,
-                tournament_name,
-                category,
-                country_a,
-                country_b,
-                polled_at           AS last_seen
-            FROM live_processed.match_detail_points
-            WHERE match_id = ANY(%s)
-            ORDER BY match_id, polled_at DESC
+            SELECT * FROM (
+                SELECT DISTINCT ON (match_id)
+                    match_id,
+                    player_a,
+                    player_b,
+                    home_sets_won,
+                    away_sets_won,
+                    home_current_games  AS home_games_won,
+                    away_current_games  AS away_games_won,
+                    home_current_point  AS home_point,
+                    away_current_point  AS away_point,
+                    NULL::VARCHAR       AS server,
+                    tournament_name,
+                    category,
+                    country_a,
+                    country_b,
+                    polled_at           AS last_seen,
+                    status              AS _status
+                FROM live_processed.match_detail_points
+                WHERE match_id = ANY(%s)
+                ORDER BY match_id, polled_at DESC
+            ) latest
+            WHERE _status = 'inprogress'
         """, [list(ACTIVE_MATCH_IDS)])
         conn.commit()
+    for row in result:
+        row.pop("_status", None)
     # Fall back to in-memory COUNTRY_MAP for matches whose first poll hasn't
     # yet persisted country to the DB.
     for row in result:

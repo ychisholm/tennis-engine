@@ -54,6 +54,9 @@ class MatchWorker:
         self._poll_interval = poll_interval
         self._running       = True
         self._poll_logger   = poll_logger
+        self._spawned_at = time.time()
+        self._max_runtime_seconds = 6 * 3600
+        self._terminal_non_finished = {"canceled", "postponed", "walkover"}
         # Counts score-state changes observed since this worker started polling,
         # NOT total points played in the match. Used as the points_count value
         # logged with POINTS_RECEIVED audit events.
@@ -122,6 +125,28 @@ class MatchWorker:
             parsed_detail = None
 
         if parsed_detail:
+            status = parsed_detail.get("status")
+            if status in self._terminal_non_finished:
+                _log.warning(
+                    "%s vs %s (match %s) — terminal non-finished status %s; stopping worker.",
+                    self._player_a, self._player_b, self._match_id, status,
+                )
+                with _ACTIVE_IDS_LOCK:
+                    ACTIVE_MATCH_IDS.discard(self._match_id)
+                self._running = False
+                return
+
+            if (time.time() - self._spawned_at) > self._max_runtime_seconds:
+                _log.warning(
+                    "%s vs %s (match %s) — exceeded max runtime (%ds); stopping worker.",
+                    self._player_a, self._player_b, self._match_id,
+                    self._max_runtime_seconds,
+                )
+                with _ACTIVE_IDS_LOCK:
+                    ACTIVE_MATCH_IDS.discard(self._match_id)
+                self._running = False
+                return
+
             score_state = (
                 parsed_detail.get("home_sets"),
                 parsed_detail.get("away_sets"),
@@ -135,22 +160,23 @@ class MatchWorker:
                 parsed_detail.get("away_current_point"),
             )
             poll_logger = getattr(self, "_poll_logger", None)
-            if poll_logger is not None:
-                if score_state != getattr(self, "_last_score_state", None):
-                    self._cumulative_points = getattr(self, "_cumulative_points", 0) + 1
-                    poll_logger.log(
-                        event_type="POINTS_RECEIVED",
-                        match_id=self._match_id,
-                        points_count=self._cumulative_points,
-                        poll_cycle_id=cycle_id,
-                    )
-                else:
-                    poll_logger.log(
-                        event_type="NO_NEW_POINTS",
-                        match_id=self._match_id,
-                        poll_cycle_id=cycle_id,
-                    )
-            self._last_score_state = score_state
+            if status == "inprogress":
+                if poll_logger is not None:
+                    if score_state != getattr(self, "_last_score_state", None):
+                        self._cumulative_points = getattr(self, "_cumulative_points", 0) + 1
+                        poll_logger.log(
+                            event_type="POINTS_RECEIVED",
+                            match_id=self._match_id,
+                            points_count=self._cumulative_points,
+                            poll_cycle_id=cycle_id,
+                        )
+                    else:
+                        poll_logger.log(
+                            event_type="NO_NEW_POINTS",
+                            match_id=self._match_id,
+                            poll_cycle_id=cycle_id,
+                        )
+                self._last_score_state = score_state
 
             parsed_detail["country_a"] = getattr(self, "_country_a", None)
             parsed_detail["country_b"] = getattr(self, "_country_b", None)
@@ -295,7 +321,9 @@ class MatchCollector:
                     self._active[match_id] = worker
 
         with self._active_lock:
-            finished = [mid for mid in self._active if mid not in live_ids]
+            finished = [
+                mid for mid, w in self._active.items() if not w._running
+            ]
             for mid in finished:
                 self._active[mid].stop()
                 del self._active[mid]
@@ -316,6 +344,47 @@ class MatchCollector:
             "collector cycle complete | active: %d matches | monitoring: %s",
             active_count, match_labels or "none",
         )
+
+    def spawn_pre_match_worker(self, raw_event: dict) -> None:
+        """Idempotently spin up a MatchWorker for a not-yet-live match so that
+        match_detail polling is already running when the API flips status to
+        inprogress. Safe to call repeatedly for the same match — if a worker
+        already exists for this match_id, this is a no-op."""
+        match_id = raw_event.get("id")
+        if match_id is None:
+            return
+
+        with self._active_lock:
+            if match_id in self._active:
+                return
+
+        poll_logger = getattr(self, "_poll_logger", None)
+        worker = MatchWorker(
+            event=raw_event,
+            rapidapi_key=self._rapidapi_key,
+            poll_interval=self._worker_poll_interval,
+            poll_logger=poll_logger,
+        )
+        thread = threading.Thread(
+            target=worker.run,
+            daemon=True,
+            name=f"worker-{match_id}",
+        )
+        thread.start()
+        with self._active_lock:
+            # Re-check under lock to prevent two pre-spawns from racing the
+            # _active check above.
+            if match_id in self._active:
+                worker.stop()
+                return
+            self._active[match_id] = worker
+        _log.info("pre-spawn worker for match %s", match_id)
+        if poll_logger is not None:
+            poll_logger.log(
+                event_type="MATCH_DISCOVERED",
+                match_id=match_id,
+                detail="pre_spawn",
+            )
 
     @staticmethod
     def _is_qualifying(event: dict) -> bool:

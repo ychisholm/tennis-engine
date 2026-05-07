@@ -288,6 +288,47 @@ class TennisFeed:
                 })
         return results
 
+    def get_upcoming_matches_raw(
+        self,
+        days_ahead: int = 1,
+        *,
+        poll_cycle_id: "uuid.UUID | None" = None,
+    ) -> list[dict]:
+        """Same filtering as get_upcoming_matches, but returns the FULL raw
+        event dicts so callers (e.g. pre-match worker spawn) can pass them
+        unchanged to MatchWorker, which expects the raw shape with
+        homeTeam/awayTeam/tournament keys."""
+        today = datetime.now(timezone.utc).date()
+        results: list[dict] = []
+        for offset in range(days_ahead + 1):
+            day = today + timedelta(days=offset)
+            path = f"/api/tennis/events/{day.day}/{day.month}/{day.year}"
+            try:
+                data = self._get(
+                    path,
+                    endpoint="events_by_date",
+                    params={
+                        "date_day": day.day,
+                        "date_month": day.month,
+                        "date_year": day.year,
+                    },
+                    poll_cycle_id=poll_cycle_id,
+                )
+            except Exception:
+                continue
+            events = data.get("events", data) if isinstance(data, dict) else data
+            if not isinstance(events, list):
+                continue
+            for event in events:
+                if not self._is_qualifying_scheduled(event):
+                    continue
+                if event.get("startTimestamp") is None:
+                    continue
+                if event.get("id") is None:
+                    continue
+                results.append(event)
+        return results
+
     @staticmethod
     def _is_qualifying_scheduled(event: dict) -> bool:
         """Same ATP/WTA singles filter as MatchCollector._is_qualifying but

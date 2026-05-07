@@ -52,12 +52,33 @@ def _upcoming(
     }
 
 
+def _upcoming_raw_from(parsed: dict) -> dict:
+    """Build an events_by_date raw event from a parsed-summary dict so the
+    scheduler's get_upcoming_matches_raw path sees something it can parse."""
+    return {
+        "id": parsed["match_id"],
+        "startTimestamp": parsed["scheduled_start_unix"],
+        "homeTeam": {"name": parsed["player_a"]},
+        "awayTeam": {"name": parsed["player_b"]},
+        "tournament": {
+            "name": parsed.get("tournament", "Test Open"),
+            "category": {"slug": "atp"},
+            "uniqueTournament": {"id": 1},
+        },
+        "eventFilters": {"category": "singles"},
+    }
+
+
 def _make_scheduler(
     upcoming: list[dict] | None = None,
     live_events: list[dict] | None = None,
 ) -> tuple[MatchScheduler, MagicMock, MagicMock]:
     feed = MagicMock()
-    feed.get_upcoming_matches.return_value = upcoming or []
+    upcoming = upcoming or []
+    feed.get_upcoming_matches.return_value = upcoming
+    feed.get_upcoming_matches_raw.return_value = [
+        _upcoming_raw_from(m) for m in upcoming
+    ]
     feed.get_live_matches_raw.return_value = live_events or []
     collector = MagicMock()
     logger = MagicMock()
@@ -87,7 +108,11 @@ def test_pre_match_to_live_when_live_matches_detected():
     """When /live returns a qualifying inprogress event, state must go LIVE."""
     sched, feed, collector = _make_scheduler()
     # Prime into PRE_MATCH first.
-    feed.get_upcoming_matches.return_value = [_upcoming(seconds_from_now=300)]
+    upcoming = [_upcoming(seconds_from_now=600)]
+    feed.get_upcoming_matches.return_value = upcoming
+    feed.get_upcoming_matches_raw.return_value = [
+        _upcoming_raw_from(m) for m in upcoming
+    ]
     feed.get_live_matches_raw.return_value = []
     sched._check_schedule()
     assert sched.state == "PRE_MATCH"
