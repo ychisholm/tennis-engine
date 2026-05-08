@@ -5,7 +5,7 @@ import threading
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 
 from src.live.logger import MatchLogger
 from src.live.tennis_feed import TennisFeed
@@ -62,6 +62,14 @@ class MatchWorker:
         # logged with POINTS_RECEIVED audit events.
         self._cumulative_points: int = 0
         self._last_score_state: tuple | None = None
+        # Once learned from /point-by-point this is cached for the worker's
+        # lifetime and persisted on every match_states row.
+        self._first_server: Optional[str] = None
+        self._first_server_attempted_count: int = 0
+        # Cap how many times we'll poll point-by-point before giving up. 40
+        # polls × 15s ≈ 10 minutes of attempts — well past when any real match
+        # produces its first point.
+        self._first_server_max_attempts: int = 40
 
         self._feed   = TennisFeed(api_key=rapidapi_key)
         self._logger = MatchLogger()
@@ -180,8 +188,27 @@ class MatchWorker:
 
             parsed_detail["country_a"] = getattr(self, "_country_a", None)
             parsed_detail["country_b"] = getattr(self, "_country_b", None)
+
+            if (
+                self._first_server is None
+                and self._first_server_attempted_count < self._first_server_max_attempts
+            ):
+                try:
+                    self._first_server_attempted_count += 1
+                    result = self._feed.get_first_server(
+                        self._match_id, poll_cycle_id=cycle_id,
+                    )
+                    if result is not None:
+                        self._first_server = result
+                        self._logger.backfill_first_server(self._match_id, result)
+                except Exception:
+                    # Already audit-logged via TennisFeed; continue with poll.
+                    pass
+
             try:
-                self._logger.upsert_match_detail_points(parsed_detail, polled_at)
+                self._logger.upsert_match_detail_points(
+                    parsed_detail, polled_at, first_server=self._first_server,
+                )
             except Exception as exc:
                 _log.warning(
                     "upsert_match_detail_points error for %s vs %s (match %s): %s",

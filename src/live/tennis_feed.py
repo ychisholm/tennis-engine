@@ -178,6 +178,48 @@ class TennisFeed:
             poll_cycle_id=poll_cycle_id,
         )
 
+    def get_first_server(
+        self,
+        match_id: int | str,
+        *,
+        poll_cycle_id: "uuid.UUID | None" = None,
+    ) -> str | None:
+        """Returns 'home', 'away', or None if not yet determinable.
+
+        Calls /event/{id}/point-by-point and parses the first game of set 1.
+        Returns None silently when the response is empty or missing structure
+        (early in a match, before any point has been played). HTTP errors are
+        already audit-logged inside _get; we swallow them here so the caller
+        can simply retry next poll.
+        """
+        try:
+            data = self._get(
+                f"/api/tennis/event/{match_id}/point-by-point",
+                endpoint="point_by_point",
+                params={"match_id": str(match_id)},
+                match_id=str(match_id),
+                poll_cycle_id=poll_cycle_id,
+            )
+        except Exception:
+            return None
+        try:
+            sets = data.get("pointByPoint") or []
+            for entry in sets:
+                if entry.get("set") != 1:
+                    continue
+                games = entry.get("games") or []
+                if not games:
+                    return None
+                serving = (games[0].get("score") or {}).get("serving")
+                if serving == 1:
+                    return "home"
+                if serving == 2:
+                    return "away"
+                return None
+            return None
+        except Exception:
+            return None
+
     def get_match_detail(
         self,
         match_id: int | str,

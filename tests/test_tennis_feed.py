@@ -546,3 +546,93 @@ def test_latency_ms_non_negative_int_on_error(monkeypatch):
         kwargs = call.kwargs
         assert isinstance(kwargs["latency_ms"], int)
         assert kwargs["latency_ms"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# G. get_first_server — parses /point-by-point set 1, game 1
+# ---------------------------------------------------------------------------
+
+
+def _first_server_body(serving_value):
+    """Build a /point-by-point response with set 1 game 1 having the given
+    serving value. Includes a set 2 entry to make sure get_first_server
+    selects set 1 specifically."""
+    return {
+        "pointByPoint": [
+            {"set": 2, "games": [{"game": 1, "score": {"serving": 2}}]},
+            {"set": 1, "games": [{"game": 1, "score": {"serving": serving_value}}]},
+        ]
+    }
+
+
+def test_get_first_server_returns_home_when_serving_is_1(monkeypatch):
+    feed, _ = _build_logged_feed(monkeypatch, _first_server_body(1))
+    assert feed.get_first_server(123) == "home"
+
+
+def test_get_first_server_returns_away_when_serving_is_2(monkeypatch):
+    feed, _ = _build_logged_feed(monkeypatch, _first_server_body(2))
+    assert feed.get_first_server(123) == "away"
+
+
+def test_get_first_server_returns_none_when_serving_is_unknown(monkeypatch):
+    feed, _ = _build_logged_feed(monkeypatch, _first_server_body(0))
+    assert feed.get_first_server(123) is None
+
+
+def test_get_first_server_returns_none_for_empty_pointbypoint(monkeypatch):
+    feed, _ = _build_logged_feed(monkeypatch, {"pointByPoint": []})
+    assert feed.get_first_server(123) is None
+
+
+def test_get_first_server_returns_none_when_pointbypoint_missing(monkeypatch):
+    feed, _ = _build_logged_feed(monkeypatch, {})
+    assert feed.get_first_server(123) is None
+
+
+def test_get_first_server_returns_none_when_set1_has_no_games(monkeypatch):
+    feed, _ = _build_logged_feed(monkeypatch, {
+        "pointByPoint": [{"set": 1, "games": []}],
+    })
+    assert feed.get_first_server(123) is None
+
+
+def test_get_first_server_returns_none_when_score_missing(monkeypatch):
+    feed, _ = _build_logged_feed(monkeypatch, {
+        "pointByPoint": [{"set": 1, "games": [{"game": 1}]}],
+    })
+    assert feed.get_first_server(123) is None
+
+
+def test_get_first_server_returns_none_when_no_set1_present(monkeypatch):
+    feed, _ = _build_logged_feed(monkeypatch, {
+        "pointByPoint": [{"set": 2, "games": [{"game": 1, "score": {"serving": 1}}]}],
+    })
+    assert feed.get_first_server(123) is None
+
+
+def test_get_first_server_returns_none_on_http_error(monkeypatch):
+    """HTTP errors are audit-logged inside _get; get_first_server must
+    swallow them and return None so the worker can retry next poll."""
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    fake_logger = MagicMock()
+    feed = TennisFeed(api_key="x", api_logger=fake_logger)
+
+    monkeypatch.setattr(
+        "src.live.tennis_feed.requests.get",
+        lambda *a, **kw: _err_response(500, "boom"),
+    )
+    monkeypatch.setattr("src.live.tennis_feed.time.sleep", lambda *_: None)
+
+    assert feed.get_first_server(123) is None
+    # _get retries 3 times → 3 audit rows; importantly no exception escaped.
+    assert fake_logger.log_call.call_count == 3
+
+
+def test_get_first_server_passes_poll_cycle_id(monkeypatch):
+    feed, fake_logger = _build_logged_feed(monkeypatch, _first_server_body(1))
+    cycle = _uuid.uuid4()
+    feed.get_first_server(123, poll_cycle_id=cycle)
+    kwargs = fake_logger.log_call.call_args.kwargs
+    assert kwargs["poll_cycle_id"] is cycle
+    assert kwargs["endpoint"] == "point_by_point"

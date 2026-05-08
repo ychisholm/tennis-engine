@@ -610,6 +610,7 @@ const fmtPbpSc = v => v == null ? '?' : (v === 'A' || v === 'AD') ? 'Ad' : Strin
 
 function isBP(pt) {
   if (!STD.has(pt.home_point) || !STD.has(pt.away_point)) return false;
+  if (pt.server !== 'home' && pt.server !== 'away') return false;
   const ret = pt.server==='home' ? pt.away_point : pt.home_point;
   const srv = pt.server==='home' ? pt.home_point : pt.away_point;
   return ret==='A' || ret==='AD' || (ret==='40' && (srv==='0'||srv==='15'||srv==='30'));

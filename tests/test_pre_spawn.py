@@ -289,6 +289,9 @@ def _bare_worker(match_id: int = 1, status_terminal=("canceled", "postponed", "w
     w._terminal_non_finished = set(status_terminal)
     w._cumulative_points = 0
     w._last_score_state = None
+    w._first_server = None
+    w._first_server_attempted_count = 0
+    w._first_server_max_attempts = 40
     w._feed = MagicMock()
     w._logger = MagicMock()
     return w
@@ -401,3 +404,112 @@ def test_inprogress_status_logs_points_received_on_state_change():
         c.kwargs.get("event_type") for c in w._poll_logger.log.call_args_list
     ]
     assert "POINTS_RECEIVED" in event_types
+
+
+# ---------------------------------------------------------------------------
+# first_server fetch / cache / backfill behaviour in MatchWorker._poll
+# ---------------------------------------------------------------------------
+
+
+def _inprogress_parsed(match_id: int) -> dict:
+    return {
+        "match_id": match_id, "status": "inprogress", "winner_code": None,
+        "home_sets": 0, "away_sets": 0,
+        "home_period1": 1, "away_period1": 0,
+        "home_period2": None, "away_period2": None,
+        "home_period3": None, "away_period3": None,
+        "home_current_point": "15", "away_current_point": "0",
+    }
+
+
+def test_worker_fetches_first_server_and_passes_it_to_upsert():
+    from src.live.collector import MatchWorker
+
+    w = _bare_worker(match_id=201)
+    w._feed.get_match_detail.return_value = {"event": {"status": {"type": "inprogress"}}}
+    w._feed.parse_match_detail.return_value = _inprogress_parsed(201)
+    w._feed.get_first_server.return_value = "away"
+
+    MatchWorker._poll(w)
+
+    assert w._first_server == "away"
+    assert w._first_server_attempted_count == 1
+    w._feed.get_first_server.assert_called_once()
+    # The cached value must be threaded into the upsert call.
+    kwargs = w._logger.upsert_match_detail_points.call_args.kwargs
+    assert kwargs.get("first_server") == "away"
+    # Backfill triggered once first_server was learned.
+    w._logger.backfill_first_server.assert_called_once_with(201, "away")
+
+
+def test_worker_stops_attempting_after_first_success():
+    from src.live.collector import MatchWorker
+
+    w = _bare_worker(match_id=202)
+    w._feed.get_match_detail.return_value = {"event": {"status": {"type": "inprogress"}}}
+    w._feed.parse_match_detail.return_value = _inprogress_parsed(202)
+    w._feed.get_first_server.return_value = "home"
+
+    MatchWorker._poll(w)
+    MatchWorker._poll(w)
+    MatchWorker._poll(w)
+
+    # After the first successful fetch, no further point-by-point calls.
+    assert w._feed.get_first_server.call_count == 1
+    assert w._first_server == "home"
+
+
+def test_worker_keeps_attempting_until_first_server_returned():
+    """Early in a match get_first_server returns None; the worker must keep
+    trying on subsequent polls."""
+    from src.live.collector import MatchWorker
+
+    w = _bare_worker(match_id=203)
+    w._feed.get_match_detail.return_value = {"event": {"status": {"type": "inprogress"}}}
+    w._feed.parse_match_detail.return_value = _inprogress_parsed(203)
+    w._feed.get_first_server.side_effect = [None, None, "home"]
+
+    MatchWorker._poll(w)
+    MatchWorker._poll(w)
+    MatchWorker._poll(w)
+    MatchWorker._poll(w)  # this poll should NOT call get_first_server again
+
+    assert w._feed.get_first_server.call_count == 3
+    assert w._first_server == "home"
+    assert w._first_server_attempted_count == 3
+
+
+def test_worker_stops_attempting_after_cap_reached():
+    from src.live.collector import MatchWorker
+
+    w = _bare_worker(match_id=204)
+    w._first_server_max_attempts = 3
+    w._feed.get_match_detail.return_value = {"event": {"status": {"type": "inprogress"}}}
+    w._feed.parse_match_detail.return_value = _inprogress_parsed(204)
+    w._feed.get_first_server.return_value = None  # always indeterminate
+
+    for _ in range(5):
+        MatchWorker._poll(w)
+
+    # Capped at 3 attempts even though we polled 5 times.
+    assert w._feed.get_first_server.call_count == 3
+    assert w._first_server is None
+    assert w._first_server_attempted_count == 3
+
+
+def test_worker_does_not_crash_if_get_first_server_throws():
+    from src.live.collector import MatchWorker
+
+    w = _bare_worker(match_id=205)
+    w._feed.get_match_detail.return_value = {"event": {"status": {"type": "inprogress"}}}
+    w._feed.parse_match_detail.return_value = _inprogress_parsed(205)
+    w._feed.get_first_server.side_effect = RuntimeError("network down")
+
+    # Must not raise.
+    MatchWorker._poll(w)
+
+    assert w._first_server is None
+    # The exception is swallowed but the upsert should still happen.
+    w._logger.upsert_match_detail_points.assert_called_once()
+    kwargs = w._logger.upsert_match_detail_points.call_args.kwargs
+    assert kwargs.get("first_server") is None

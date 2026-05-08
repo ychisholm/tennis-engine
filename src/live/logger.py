@@ -103,6 +103,10 @@ _SETUP_STMTS = [
        home_current_point, away_current_point)
     """,
     """
+    ALTER TABLE live.match_states
+      ADD COLUMN IF NOT EXISTS first_server VARCHAR(10)
+    """,
+    """
     CREATE TABLE IF NOT EXISTS audit.api_call_log (
         id              BIGSERIAL PRIMARY KEY,
         timestamp       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -165,9 +169,15 @@ INSERT INTO live.match_states (
     home_current_games, away_current_games,
     home_current_point, away_current_point,
     point_winner, winner_code, tournament_name, category,
-    country_a, country_b
-) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    country_a, country_b, first_server
+) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (match_id, polled_at) DO NOTHING
+"""
+
+_BACKFILL_FIRST_SERVER = """
+UPDATE live.match_states
+   SET first_server = %s
+ WHERE match_id = %s AND first_server IS NULL
 """
 
 # "A" is what the API actually returns for advantage; "AD" kept for safety.
@@ -340,6 +350,7 @@ class MatchLogger:
         self,
         parsed_detail: dict,
         polled_at: datetime,
+        first_server: str | None = None,
     ) -> None:
         """Insert one score-state snapshot into live.match_states.
 
@@ -515,6 +526,7 @@ class MatchLogger:
                 parsed_detail.get("category"),
                 parsed_detail.get("country_a"),
                 parsed_detail.get("country_b"),
+                first_server,
             ])
 
             # Retroactive: when this row begins a new game, the previous row
@@ -552,6 +564,25 @@ class MatchLogger:
             _log.warning(
                 "upsert_match_detail_points failed for match_id=%s: %s",
                 match_id_int, exc,
+            )
+        finally:
+            cur.close()
+
+    def backfill_first_server(self, match_id: int, first_server: str) -> None:
+        """One-shot UPDATE that populates first_server for any existing rows
+        of this match where it's currently NULL. Idempotent — re-running with
+        the same value is a no-op once all rows are filled. Never raises:
+        first_server is best-effort metadata, and a DB hiccup here must not
+        crash the worker."""
+        cur = self._conn.cursor()
+        try:
+            cur.execute(_BACKFILL_FIRST_SERVER, [first_server, int(match_id)])
+            self._conn.commit()
+        except Exception as exc:
+            self._conn.rollback()
+            _log.warning(
+                "backfill_first_server failed for match_id=%s: %s",
+                match_id, exc,
             )
         finally:
             cur.close()

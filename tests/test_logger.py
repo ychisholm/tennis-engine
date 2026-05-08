@@ -180,3 +180,121 @@ def test_log_match_detail_fields(logger):
     assert row[7] == "0"
     assert row[8] == "Wimbledon"
     assert row[9] == "atp"
+
+
+# ---------------------------------------------------------------------------
+# first_server column — schema, upsert plumbing, and backfill
+# ---------------------------------------------------------------------------
+
+from datetime import datetime, timezone, timedelta  # noqa: E402
+
+
+def test_match_states_has_first_server_column(logger):
+    """The migration ALTER must run on every MatchLogger.__init__."""
+    with logger._conn.cursor() as cur:
+        cur.execute("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_schema = 'live' AND table_name = 'match_states'
+        """)
+        cols = {r[0] for r in cur.fetchall()}
+    assert "first_server" in cols
+
+
+def _upsert_state(logger, polled_at, *, home_pt="15", away_pt="0",
+                  home_period1=1, away_period1=0, first_server=None):
+    parsed = {
+        "match_id": _MID,
+        "player_a": "Federer",
+        "player_b": "Djokovic",
+        "status": "inprogress",
+        "home_sets": 0,
+        "away_sets": 0,
+        "home_period1": home_period1,
+        "away_period1": away_period1,
+        "home_period2": None, "away_period2": None,
+        "home_period3": None, "away_period3": None,
+        "home_current_point": home_pt,
+        "away_current_point": away_pt,
+        "winner_code": None,
+        "tournament_name": "Wimbledon",
+        "category": "atp",
+    }
+    logger.upsert_match_detail_points(parsed, polled_at, first_server=first_server)
+
+
+def test_upsert_writes_first_server(logger):
+    ts = datetime.now(timezone.utc)
+    _upsert_state(logger, ts, first_server="home")
+    val = _fetchval(
+        logger,
+        "SELECT first_server FROM live.match_states WHERE match_id = %s",
+        [_MID],
+    )
+    assert val == "home"
+
+
+def test_upsert_writes_null_when_first_server_omitted(logger):
+    """Default behaviour — early polls before we know the server."""
+    ts = datetime.now(timezone.utc)
+    _upsert_state(logger, ts)  # no first_server kwarg
+    val = _fetchval(
+        logger,
+        "SELECT first_server FROM live.match_states WHERE match_id = %s",
+        [_MID],
+    )
+    assert val is None
+
+
+def test_backfill_first_server_fills_null_rows(logger):
+    """Two NULL rows + one already-set row → backfill leaves the set row alone
+    and fills the NULLs."""
+    base = datetime.now(timezone.utc)
+    _upsert_state(logger, base, home_pt="15", away_pt="0", first_server=None)
+    _upsert_state(
+        logger, base + timedelta(seconds=1),
+        home_pt="30", away_pt="0", first_server=None,
+    )
+    # Manually plant a row already labelled 'away' to make sure backfill
+    # respects existing values.
+    with logger._conn.cursor() as cur:
+        cur.execute("""
+            UPDATE live.match_states SET first_server = 'away'
+             WHERE match_id = %s AND home_current_point = '30'
+        """, [_MID])
+    logger._conn.commit()
+
+    logger.backfill_first_server(_MID, "home")
+
+    with logger._conn.cursor() as cur:
+        cur.execute("""
+            SELECT home_current_point, first_server FROM live.match_states
+             WHERE match_id = %s ORDER BY polled_at
+        """, [_MID])
+        rows = cur.fetchall()
+    by_pt = {r[0]: r[1] for r in rows}
+    assert by_pt["15"] == "home"   # was NULL → backfilled
+    assert by_pt["30"] == "away"   # already set → preserved
+
+
+def test_backfill_first_server_is_idempotent(logger):
+    base = datetime.now(timezone.utc)
+    _upsert_state(logger, base, first_server=None)
+    logger.backfill_first_server(_MID, "home")
+    logger.backfill_first_server(_MID, "home")  # second call is a no-op
+    val = _fetchval(
+        logger,
+        "SELECT first_server FROM live.match_states WHERE match_id = %s",
+        [_MID],
+    )
+    assert val == "home"
+
+
+def test_backfill_first_server_swallows_errors(logger, monkeypatch):
+    """A DB hiccup must not raise — first_server is best-effort metadata."""
+    import src.live.logger as logger_mod
+    monkeypatch.setattr(
+        logger_mod, "_BACKFILL_FIRST_SERVER",
+        "UPDATE live.this_table_does_not_exist SET first_server = %s WHERE match_id = %s",
+    )
+    # Must not raise — failure is logged and swallowed.
+    logger.backfill_first_server(_MID, "home")

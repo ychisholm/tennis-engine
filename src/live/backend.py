@@ -78,13 +78,84 @@ def _safe_query(conn, sql: str, params=None) -> list[dict]:
 # Routes
 # ---------------------------------------------------------------------------
 
-def _enrich_detail_points(rows: list[dict], first_server: str = "home") -> list[dict]:
+def _derive_server(
+    first_server: str | None,
+    home_set1_games: int,
+    away_set1_games: int,
+    home_set2_games: int,
+    away_set2_games: int,
+    home_set3_games: int,
+    away_set3_games: int,
+    home_current_games: int,
+    away_current_games: int,
+    home_current_point: Any,
+    away_current_point: Any,
+    set_num: int,
+) -> str | None:
+    """Derive who is serving the current point from completed-set games,
+    in-set games, and (inside a tiebreak) points played so far.
+
+    Returns 'home', 'away', or None when first_server is unknown.
+
+    Outside a tiebreak: server alternates every game starting with first_server.
+    Inside a tiebreak: the player who would have served game 13 starts the
+    tiebreak and serves point 1; thereafter pairs of points alternate
+    (1, 2-3, 4-5, 6-7, …). points-counts that can't be cast to int (e.g. an
+    unexpected 'A' bubbling up from some edge case) fall back to the
+    pre-tiebreak alternation rather than raising.
+    """
+    if first_server is None:
+        return None
+
+    completed_games = 0
+    # Sum games from sets that have been completed (set_num is the
+    # currently-being-played set; sets 1..set_num-1 are completed).
+    for s in range(1, set_num):
+        if s == 1:
+            completed_games += (home_set1_games or 0) + (away_set1_games or 0)
+        elif s == 2:
+            completed_games += (home_set2_games or 0) + (away_set2_games or 0)
+        elif s == 3:
+            completed_games += (home_set3_games or 0) + (away_set3_games or 0)
+    completed_games += (home_current_games or 0) + (away_current_games or 0)
+    current_game_number = completed_games + 1
+
+    other_side = "away" if first_server == "home" else "home"
+    regular_server = first_server if (current_game_number % 2 == 1) else other_side
+
+    is_in_tiebreak = (home_current_games == 6 and away_current_games == 6)
+    if not is_in_tiebreak:
+        return regular_server
+
+    starter = regular_server
+    other = "away" if starter == "home" else "home"
+    try:
+        points_played = int(home_current_point) + int(away_current_point)
+    except (TypeError, ValueError):
+        # 'A'/'AD' shouldn't happen in a tiebreak, but if it does don't crash;
+        # fall back to the starter rather than guessing point parity.
+        return regular_server
+
+    n = max(points_played, 1)
+    if n == 1:
+        return starter
+    # Points after the first alternate in pairs:
+    #   2-3 → other, 4-5 → starter, 6-7 → other, …
+    group = (n - 2) // 2
+    return other if (group % 2 == 0) else starter
+
+
+def _enrich_detail_points(rows: list[dict]) -> list[dict]:
     """Convert match_detail_points rows into point-level rows for the dashboard.
 
-    Assigns set_num/game_num/point_num and derives server from game parity
-    (who served game 1 = first_server). point_winner is read directly from
-    the column — derivation lives in the logger so all consumers see the
-    same value.
+    Server identity is computed per-row from each row's first_server column
+    (populated by the worker once known) plus completed-set games, in-set
+    games, and — inside a tiebreak — points played. When first_server is
+    unknown, server is None for that match; the dashboard displays no server
+    indicator rather than a wrong one.
+
+    point_winner is read directly from the column — derivation lives in the
+    logger so all consumers see the same value.
 
     Rows with status='finished' represent the post-match snapshot. They
     carry the authoritative final tally (sets/per-set games) but are flagged
@@ -121,15 +192,20 @@ def _enrich_detail_points(rows: list[dict], first_server: str = "home") -> list[
         else:
             game_num = home_g + away_g + 1
 
-        prev_set_games = 0
-        for s in range(1, set_num):
-            prev_set_games += (row.get(f"home_set{s}_games") or 0) + (row.get(f"away_set{s}_games") or 0)
-        total_before = prev_set_games + home_g + away_g
-
-        if total_before % 2 == 0:
-            server = first_server
-        else:
-            server = "away" if first_server == "home" else "home"
+        server = _derive_server(
+            first_server=row.get("first_server"),
+            home_set1_games=row.get("home_set1_games") or 0,
+            away_set1_games=row.get("away_set1_games") or 0,
+            home_set2_games=row.get("home_set2_games") or 0,
+            away_set2_games=row.get("away_set2_games") or 0,
+            home_set3_games=row.get("home_set3_games") or 0,
+            away_set3_games=row.get("away_set3_games") or 0,
+            home_current_games=home_g,
+            away_current_games=away_g,
+            home_current_point=row.get("home_current_point") or "0",
+            away_current_point=row.get("away_current_point") or "0",
+            set_num=set_num,
+        )
 
         result.append({
             "point_num":          len(result),
@@ -289,7 +365,8 @@ def get_match(match_id: int):
                 home_set3_games, away_set3_games,
                 home_current_games, away_current_games,
                 home_current_point, away_current_point,
-                point_winner, winner_code, tournament_name, category
+                point_winner, winner_code, tournament_name, category,
+                first_server
             FROM live.match_states
             WHERE match_id = %s
             ORDER BY

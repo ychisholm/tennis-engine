@@ -1,5 +1,5 @@
 Tennis Engine — Step 5C Evaluation Report
-Generated: 2026-05-07T19:07:49
+Generated: 2026-05-08T15:07:49
 Model: data/processed/model_v1.joblib (isotonic-calibrated XGBoost, from 5B)
 Test set rows: 34,020
 
