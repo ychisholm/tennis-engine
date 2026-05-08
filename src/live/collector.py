@@ -23,7 +23,7 @@ COUNTRY_MAP: dict[int, tuple[str | None, str | None]] = {}
 class MatchWorker:
     """
     Polls one live match in a daemon thread, fetching match-detail snapshots
-    and writing them to live_raw.match_details + live_processed.match_detail_points.
+    and writing them to live.match_polls + live.match_states.
     Stops when the API reports a winner_code.
     """
 

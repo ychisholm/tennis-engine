@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 backfill_today.py — Backfill completed ATP/WTA singles matches into
-live_raw.tennisapi_points via interactive prompts.
+live.backfill_points via interactive prompts.
 
 Usage (from project root):
     .venv/bin/python scripts/backtesting/backfill_today.py
@@ -52,11 +52,11 @@ def _get_conn():
 
 
 def _ensure_tables(conn) -> None:
-    """Create live_raw schema and tennisapi_points table if they don't exist."""
+    """Create live schema and backfill_points table if they don't exist."""
     with conn.cursor() as cur:
-        cur.execute("CREATE SCHEMA IF NOT EXISTS live_raw")
+        cur.execute("CREATE SCHEMA IF NOT EXISTS live")
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS live_raw.tennisapi_points (
+            CREATE TABLE IF NOT EXISTS live.backfill_points (
                 ts               TIMESTAMPTZ,
                 match_id         INTEGER,
                 player_a         VARCHAR,
@@ -173,7 +173,7 @@ def derive_points(raw_response: dict) -> list[dict]:
 # ── DB helpers ─────────────────────────────────────────────────────────────────
 
 _INSERT_RAW_POINT = """
-INSERT INTO live_raw.tennisapi_points (
+INSERT INTO live.backfill_points (
     ts, match_id, player_a, player_b,
     point_num, set_num, game_num,
     home_point, away_point, server, point_winner, is_ace, is_double_fault,
@@ -183,10 +183,10 @@ INSERT INTO live_raw.tennisapi_points (
 
 
 def get_existing_match_ids(conn) -> dict[int, int]:
-    """Return a mapping of match_id → point count in live_raw.tennisapi_points."""
+    """Return a mapping of match_id → point count in live.backfill_points."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT match_id, COUNT(*) FROM live_raw.tennisapi_points GROUP BY match_id"
+            "SELECT match_id, COUNT(*) FROM live.backfill_points GROUP BY match_id"
         )
         rows = cur.fetchall()
     return {r[0]: r[1] for r in rows}
@@ -451,8 +451,7 @@ def backfill_matches(matches: list[dict], conn) -> list[dict]:
     For each match:
     - If not in DB → write it.
     - If DB count < API count → delete all rows for the match_id across
-      live_raw.tennisapi_points, live_raw.oddsapi_polls, and
-      live_processed.dashboard_log, then re-backfill.
+      live.backfill_points and live.backfill_odds_polls, then re-backfill.
     - If DB count >= API count → already complete, skip.
     """
     print(_sep("═"))
@@ -532,15 +531,14 @@ def backfill_matches(matches: list[dict], conn) -> list[dict]:
 
 
 def _delete_match_rows(conn, match_id: int) -> None:
-    """Delete all rows for match_id from all three Medallion tables.
+    """Delete all rows for match_id from the backfill tables.
 
     Each table is deleted in its own try/except so a missing table
     (e.g. on a fresh DB) doesn't abort the whole operation.
     """
     tables = (
-        "live_raw.tennisapi_points",
-        "live_raw.oddsapi_polls",
-        "live_processed.dashboard_log",
+        "live.backfill_points",
+        "live.backfill_odds_polls",
     )
     for tbl in tables:
         try:

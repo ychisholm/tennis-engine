@@ -1,0 +1,100 @@
+Tennis Engine — Step 5C Evaluation Report
+Generated: 2026-05-07T19:07:49
+Model: data/processed/model_v1.joblib (isotonic-calibrated XGBoost, from 5B)
+Test set rows: 34,020
+
+=== HEADLINE BRIER (recap from 5B) ===
+Test Brier:        0.1495
+Soft Markov:       0.2409
+Improvement:       37.96% relative
+
+=== CALIBRATION CURVE (10 bins) ===
+Bin       | Mean Predicted | Actual Fraction | Diff
+0.0-0.1   | 0.0329         | 0.0383          | +0.0054
+0.1-0.2   | 0.1417         | 0.1502          | +0.0085
+0.2-0.3   | 0.2516         | 0.2971          | +0.0454
+0.3-0.4   | 0.3574         | 0.3759          | +0.0185
+0.4-0.5   | 0.4604         | 0.4842          | +0.0238
+0.5-0.6   | 0.5459         | 0.5772          | +0.0313
+0.6-0.7   | 0.6437         | 0.6825          | +0.0388
+0.7-0.8   | 0.7461         | 0.7749          | +0.0289
+0.8-0.9   | 0.8539         | 0.9057          | +0.0518
+0.9-1.0   | 0.9664         | 0.9794          | +0.0130
+Calibration plot saved to data/processed/calibration_curve.png
+Interpretation: Model is under-confident in bin 0.8-0.9 (deviation +0.0518); other bins within ~0.03 of the diagonal.
+
+=== CONFIDENCE-BUCKETED ACCURACY ===
+Bucket    | Count  | Accuracy | Mean Confidence | Mean Brier
+0.50-0.55 | 6583   | 52.13%   | 0.5232          | 0.2493
+0.55-0.60 | 4334   | 58.86%   | 0.5730          | 0.2425
+0.60-0.65 | 2889   | 64.31%   | 0.6234          | 0.2300
+0.65-0.70 | 1908   | 68.29%   | 0.6733          | 0.2160
+0.70-0.75 | 1450   | 70.28%   | 0.7243          | 0.2094
+0.75-0.80 | 1182   | 78.68%   | 0.7753          | 0.1681
+0.80+ | 15674  | 94.21%   | 0.9340          | 0.0519
+Plot saved to data/processed/confidence_buckets.png
+Interpretation: accuracy climbs monotonically with confidence; the top bucket (0.80+) has 15674 predictions at 94.21% accuracy — a viable selective edge.
+
+=== PERFORMANCE BY POSITION IN SET ===
+Game Number | Count  | Mean Pred Prob | Brier  | Accuracy
+1           | 3472   | 0.5088         | 0.2102 | 66.27%
+2           | 3472   | 0.5136         | 0.1912 | 69.82%
+3           | 3472   | 0.5085         | 0.1745 | 73.10%
+4           | 3472   | 0.5089         | 0.1590 | 74.57%
+5           | 3472   | 0.5003         | 0.1448 | 78.28%
+6           | 3472   | 0.5004         | 0.1304 | 79.03%
+7           | 3381   | 0.4990         | 0.1163 | 82.52%
+8           | 3066   | 0.4932         | 0.1098 | 81.77%
+9           | 2579   | 0.5036         | 0.1086 | 82.20%
+10          | 1760   | 0.4636         | 0.1267 | 76.19%
+11          | 894    | 0.4804         | 0.2117 | 63.87%
+12          | 894    | 0.5081         | 0.1730 | 67.34%
+13          | 614    | 0.5324         | 0.0000 | 100.00%
+Plot saved to data/processed/brier_by_game_number.png
+
+Decided vs Undecided rows:
+  Decided rows (last game of each set):
+    Count:  3,472
+    Model Brier:        0.0000
+    Soft Markov Brier:  0.2386
+  Undecided rows (mid-set):
+    Count:  30,548
+    Model Brier:        0.1664
+    Soft Markov Brier:  0.2411
+Interpretation: decided rows are easier (Brier 0.0000) than mid-set rows (Brier 0.1664, gap +0.1664); the model still beats Soft Markov on undecided rows by 0.0747 Brier — that's the honest read.
+
+=== FEATURE IMPORTANCE ===
+Top 15 individual features:
+   1. markov_set_win_prob_A        Markov         0.3554
+   2. mrs_pwr_30_cm_a              MRS            0.0405
+   3. sets_won_B                   score_context  0.0250
+   4. res_return_win_pct_cm_b      RES            0.0220
+   5. res_return_win_pct_cm_a      RES            0.0212
+   6. sds_serve_win_pct_cm_a       SDS            0.0201
+   7. sds_serve_win_pct_cm_b       SDS            0.0201
+   8. sets_won_A                   score_context  0.0180
+   9. sds_hold_rate_cm_b           SDS            0.0145
+  10. cpi_serve_pressure_pct_cm_a  CPI            0.0144
+  11. res_bp_conv_rate_cm_b        RES            0.0141
+  12. cpi_serve_pressure_pct_cm_b  CPI            0.0139
+  13. bpi_bp_rate_cm_a             BPI            0.0138
+  14. sds_hold_rate_cm_a           SDS            0.0132
+  15. surface_hard                 score_context  0.0129
+
+Aggregated by signal group (sum of importances):
+  Markov          0.3554
+  BPI             0.1331
+  SDS             0.1318
+  score_context   0.1145
+  RES             0.1119
+  CPI             0.0906
+  MRS             0.0627
+Plot saved to data/processed/feature_importance.png
+
+=== SUMMARY ===
+- Calibration: needs work.
+- High-confidence reliability: viable — 15674 predictions at 94.21% in the 0.80+ bucket.
+- Mid-set vs decided: undecided rows carry Brier 0.1664 vs decided 0.0000; the headline 0.1495 reflects a mix of trivial and genuinely uncertain rows.
+- Signal contribution: top families are Markov (0.355), BPI (0.133), SDS (0.132).
+
+Ready to proceed to Step 6 (iteration) and eventually Block 7 (live integration) gated on 6C odds comparison.

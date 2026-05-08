@@ -1,7 +1,7 @@
 """
 Audit-log writer for the live polling pipeline.
 
-Writes one row to public.poll_audit_log per significant event so post-hoc
+Writes one row to audit.poll_audit_log per significant event so post-hoc
 diagnostic scripts can reconstruct exactly when each match was discovered,
 when polling started, and when point data first arrived.
 
@@ -33,28 +33,25 @@ class PollLogger:
 
     def setup(self) -> None:
         ddl = """
-        CREATE TABLE IF NOT EXISTS poll_audit_log (
+        CREATE SCHEMA IF NOT EXISTS audit;
+        CREATE TABLE IF NOT EXISTS audit.poll_audit_log (
             id SERIAL PRIMARY KEY,
             timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             event_type VARCHAR(50) NOT NULL,
             match_id VARCHAR(100),
             detail TEXT,
-            points_count INTEGER
+            points_count INTEGER,
+            triggering_call_id BIGINT,
+            reason TEXT,
+            metadata JSONB,
+            poll_cycle_id UUID
         );
         CREATE INDEX IF NOT EXISTS idx_poll_audit_match_id
-            ON poll_audit_log(match_id);
+            ON audit.poll_audit_log(match_id);
         CREATE INDEX IF NOT EXISTS idx_poll_audit_timestamp
-            ON poll_audit_log(timestamp);
-        ALTER TABLE poll_audit_log
-            ADD COLUMN IF NOT EXISTS triggering_call_id BIGINT;
-        ALTER TABLE poll_audit_log
-            ADD COLUMN IF NOT EXISTS reason TEXT;
-        ALTER TABLE poll_audit_log
-            ADD COLUMN IF NOT EXISTS metadata JSONB;
-        ALTER TABLE public.poll_audit_log
-            ADD COLUMN IF NOT EXISTS poll_cycle_id UUID;
+            ON audit.poll_audit_log(timestamp);
         CREATE INDEX IF NOT EXISTS poll_audit_log_poll_cycle_idx
-            ON public.poll_audit_log (poll_cycle_id);
+            ON audit.poll_audit_log(poll_cycle_id);
         """
         try:
             with self._lock:
@@ -81,7 +78,7 @@ class PollLogger:
                 with self._conn.cursor() as cur:
                     cur.execute(
                         """
-                        INSERT INTO poll_audit_log
+                        INSERT INTO audit.poll_audit_log
                             (event_type, match_id, detail, points_count, poll_cycle_id)
                         VALUES (%s, %s, %s, %s, %s)
                         """,

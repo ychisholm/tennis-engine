@@ -1,0 +1,90 @@
+======================================================================
+SIGNAL ENGINEERING BUILD REPORT (Step 3)
+======================================================================
+
+Matches processed:               4,679
+Points processed:                757,764
+Signal-engine rows emitted:      121,483
+core.ml_game_level row count:    120,718
+core.ml_game_level column count: 80
+
+Unmatched ml_game_level rows:    0
+
+Total runtime: 4.3s (0.07 min)
+
+----------------------------------------------------------------------
+PER-SIGNAL SUMMARY STATISTICS (populated rows only)
+----------------------------------------------------------------------
+column                                           min      mean       max       std
+bpi_bp_rate_ws_a                              0.0000    0.2573    2.7500    0.3257
+bpi_bp_rate_ws_b                              0.0000    0.2668    3.7500    0.3291
+bpi_bp_rate_cm_a                              0.0000    0.3480    2.6667    0.3119
+bpi_bp_rate_cm_b                              0.0000    0.3591    3.7500    0.3090
+bpi_deep_pressure_rate_ws_a                   0.0000    0.0704    0.6667    0.1172
+bpi_deep_pressure_rate_ws_b                   0.0000    0.0732    0.6667    0.1176
+bpi_deep_pressure_rate_cm_a                   0.0000    0.0962    0.6667    0.1110
+bpi_deep_pressure_rate_cm_b                   0.0000    0.0992    0.6667    0.1089
+bpi_near_pressure_rate_ws_a                   0.0000    0.0304    0.6000    0.0774
+bpi_near_pressure_rate_ws_b                   0.0000    0.0333    0.6000    0.0799
+bpi_near_pressure_rate_cm_a                   0.0000    0.0409    0.6000    0.0694
+bpi_near_pressure_rate_cm_b                   0.0000    0.0454    0.6000    0.0725
+sds_serve_win_pct_ws_a                        0.0000    0.6467    1.0000    0.1972
+sds_serve_win_pct_ws_b                        0.0000    0.6182    1.0000    0.2308
+sds_serve_win_pct_cm_a                        0.0000    0.6601    1.0000    0.1191
+sds_serve_win_pct_cm_b                        0.0000    0.6299    1.0000    0.1746
+sds_hold_rate_ws_a                            0.0000    0.7903    1.0000    0.3052
+sds_hold_rate_ws_b                            0.0000    0.7517    1.0000    0.3410
+sds_hold_rate_cm_a                            0.0000    0.8166    1.0000    0.2066
+sds_hold_rate_cm_b                            0.0000    0.7722    1.0000    0.2628
+sds_avg_pts_per_game_ws_a                     0.0000    5.9176   30.0000    1.9634
+sds_avg_pts_per_game_ws_b                     0.0000    5.7106   30.0000    2.2513
+sds_avg_pts_per_game_cm_a                     4.0000    6.1205   24.0000    1.2148
+sds_avg_pts_per_game_cm_b                     0.0000    5.8856   28.0000    1.6809
+res_return_win_pct_ws_a                       0.0000    0.3128    1.0000    0.1794
+res_return_win_pct_ws_b                       0.0000    0.3211    1.0000    0.1685
+res_return_win_pct_cm_a                       0.0000    0.3316    1.0000    0.1378
+res_return_win_pct_cm_b                       0.0000    0.3399    1.0000    0.1191
+res_bp_conv_rate_ws_a                         0.0000    0.2516    1.0000    0.3676
+res_bp_conv_rate_ws_b                         0.0000    0.2556    1.0000    0.3679
+res_bp_conv_rate_cm_a                         0.0000    0.3356    1.0000    0.3338
+res_bp_conv_rate_cm_b                         0.0000    0.3293    1.0000    0.3266
+cpi_serve_pressure_pct_ws_a                   0.0000    0.5308    1.0000    0.3650
+cpi_serve_pressure_pct_ws_b                   0.0000    0.5048    1.0000    0.3732
+cpi_serve_pressure_pct_cm_a                   0.0000    0.6179    1.0000    0.2585
+cpi_serve_pressure_pct_cm_b                   0.0000    0.5819    1.0000    0.2829
+cpi_return_pressure_pct_ws_a                  0.0000    0.2666    1.0000    0.2912
+cpi_return_pressure_pct_ws_b                  0.0000    0.2723    1.0000    0.2869
+cpi_return_pressure_pct_cm_a                  0.0000    0.3145    1.0000    0.2287
+cpi_return_pressure_pct_cm_b                  0.0000    0.3160    1.0000    0.2165
+mrs_pwr_10_ws_a                               0.0000    0.5085    1.0000    0.1761
+mrs_pwr_10_ws_b                               0.0000    0.4915    1.0000    0.1761
+mrs_pwr_10_cm_a                               0.0000    0.5089    1.0000    0.1660
+mrs_pwr_10_cm_b                               0.0000    0.4911    1.0000    0.1660
+mrs_pwr_30_ws_a                               0.0000    0.5110    1.0000    0.1360
+mrs_pwr_30_ws_b                               0.0000    0.4890    1.0000    0.1360
+mrs_pwr_30_cm_a                               0.0000    0.5113    1.0000    0.1131
+mrs_pwr_30_cm_b                               0.0000    0.4887    1.0000    0.1131
+mrs_game_streak_ws_a                          0.0000    0.7596    6.0000    0.9884
+mrs_game_streak_ws_b                          0.0000    0.7285    7.0000    0.9697
+mrs_game_streak_cm_a                          0.0000    0.8226   13.0000    1.1491
+mrs_game_streak_cm_b                          0.0000    0.7903   13.0000    1.1344
+
+======================================================================
+TEST RESULTS (tests/test_signal_engine.py)
+======================================================================
+  test_column_count                                PASSED
+  test_column_names                                PASSED
+  test_row_count_unchanged                         PASSED
+  test_set1_ws_equals_cm                           PASSED
+  test_no_unexpected_nulls                         PASSED
+  test_tiebreak_freeze_bpi                         PASSED
+  test_tiebreak_advance_cpi_mrs                    PASSED
+  test_smoothing_applied                           PASSED
+  test_pressure_point_definition                   PASSED
+  test_game_streak_resets                          PASSED
+  test_pwr10_window                                PASSED
+  test_carryover_ws_resets                         PASSED
+  test_total_runtime_acceptable                    PASSED
+
+  pytest summary: 13 passed
+  pytest exit code: 0

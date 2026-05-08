@@ -66,9 +66,9 @@ def _get_conn():
 
 def _ensure_tables(conn) -> None:
     with conn.cursor() as cur:
-        cur.execute("CREATE SCHEMA IF NOT EXISTS live_raw")
+        cur.execute("CREATE SCHEMA IF NOT EXISTS live")
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS live_raw.oddsapi_polls (
+            CREATE TABLE IF NOT EXISTS live.backfill_odds_polls (
                 ts                    TIMESTAMPTZ,
                 match_id              INTEGER,
                 player_a              VARCHAR,
@@ -265,7 +265,7 @@ def _compute_window_from_db(match_ids: list[int], conn) -> tuple[datetime, datet
     placeholders = ", ".join(["%s"] * len(match_ids))
     with conn.cursor() as cur:
         cur.execute(
-            f"SELECT MIN(ts), MAX(ts) FROM live_raw.tennisapi_points"
+            f"SELECT MIN(ts), MAX(ts) FROM live.backfill_points"
             f" WHERE match_id IN ({placeholders})",
             match_ids,
         )
@@ -298,7 +298,7 @@ def _clean(v: object) -> object:
 
 
 _INSERT_POLL = """
-INSERT INTO live_raw.oddsapi_polls (
+INSERT INTO live.backfill_odds_polls (
     ts, match_id, player_a, player_b,
     bookmaker_prob_a, num_bookmakers, api_credits_remaining
 ) VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -371,7 +371,7 @@ def _resolve_db_match_ids(
     for m in target_matches:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT DISTINCT match_id FROM live_raw.tennisapi_points
+                SELECT DISTINCT match_id FROM live.backfill_points
                 WHERE (player_a = %s AND player_b = %s)
                    OR (player_a = %s AND player_b = %s)
                 LIMIT 1

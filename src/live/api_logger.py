@@ -1,8 +1,8 @@
 """
 Audit logger for every TennisAPI1 HTTP call.
 
-Writes one row to live_raw.api_call_log per call. For a configured subset of
-endpoints, also archives the parsed JSON body in live_raw.api_response_archive
+Writes one row to audit.api_call_log per call. For a configured subset of
+endpoints, also archives the parsed JSON body in audit.api_response_archive
 and back-references it via raw_response_id.
 
 Failures inside log_call are caught, rolled back, and logged at WARNING. The
@@ -24,7 +24,7 @@ from psycopg2.extras import Json
 
 _log = logging.getLogger(__name__)
 
-# Endpoints whose parsed JSON body is archived to live_raw.api_response_archive.
+# Endpoints whose parsed JSON body is archived to audit.api_response_archive.
 # events_by_date is intentionally excluded: its responses are 2-5 MB each
 # (hundreds of events with full nested team/tournament/score objects polled
 # every 5 minutes by the dashboard), and they add no diagnostic value for the
@@ -70,7 +70,7 @@ class ApiLogger:
                         )
                         cur.execute(
                             """
-                            INSERT INTO live_raw.api_response_archive
+                            INSERT INTO audit.api_response_archive
                                 (endpoint, match_id, raw_json, byte_size)
                             VALUES (%s, %s, %s, %s)
                             RETURNING id
@@ -81,7 +81,7 @@ class ApiLogger:
 
                     cur.execute(
                         """
-                        INSERT INTO live_raw.api_call_log (
+                        INSERT INTO audit.api_call_log (
                             endpoint, request_path, request_params, match_id,
                             http_status, latency_ms, response_summary,
                             raw_response_id, error, poll_cycle_id

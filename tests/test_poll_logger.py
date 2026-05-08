@@ -79,7 +79,7 @@ def pl():
     try:
         with pl._conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM poll_audit_log WHERE match_id = %s",
+                "DELETE FROM audit.poll_audit_log WHERE match_id = %s",
                 [_SENTINEL_MID],
             )
         pl._conn.commit()
@@ -106,7 +106,7 @@ class TestPollLoggerDB:
         row = _fetchone(
             pl,
             """
-            SELECT poll_cycle_id FROM poll_audit_log
+            SELECT poll_cycle_id FROM audit.poll_audit_log
             WHERE match_id = %s
             ORDER BY id DESC
             LIMIT 1
@@ -124,7 +124,7 @@ class TestPollLoggerDB:
         row = _fetchone(
             pl,
             """
-            SELECT poll_cycle_id FROM poll_audit_log
+            SELECT poll_cycle_id FROM audit.poll_audit_log
             WHERE match_id = %s
             ORDER BY id DESC
             LIMIT 1
@@ -145,7 +145,7 @@ class TestPollLoggerDB:
         with pl._conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT COUNT(*) FROM poll_audit_log
+                SELECT COUNT(*) FROM audit.poll_audit_log
                 WHERE match_id = %s AND poll_cycle_id = %s
                 """,
                 [_SENTINEL_MID, str(cycle)],

@@ -5,7 +5,7 @@ Two test classes:
   - Summarizer tests: pure functions, no DB, always run.
   - DB-backed tests: require DATABASE_URL, skipped otherwise (mirrors the
     convention in tests/test_logger.py). The MatchLogger fixture is built
-    first to ensure live_raw.api_call_log and live_raw.api_response_archive
+    first to ensure audit.api_call_log and audit.api_response_archive
     exist (their DDL lives in src/live/logger.py:_SETUP_STMTS).
   - Mock-based failure tests: hermetic, always run, exercise the swallow-on-
     error contract without needing a real Postgres instance.
@@ -375,11 +375,11 @@ def db_logger():
     try:
         with al._conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM live_raw.api_call_log WHERE match_id = %s",
+                "DELETE FROM audit.api_call_log WHERE match_id = %s",
                 [_SENTINEL_MID],
             )
             cur.execute(
-                "DELETE FROM live_raw.api_response_archive WHERE match_id = %s",
+                "DELETE FROM audit.api_response_archive WHERE match_id = %s",
                 [_SENTINEL_MID],
             )
         al._conn.commit()
@@ -414,7 +414,7 @@ class TestApiLoggerDB:
             """
             SELECT endpoint, request_path, match_id, http_status, latency_ms,
                    raw_response_id, error
-            FROM live_raw.api_call_log WHERE id = %s
+            FROM audit.api_call_log WHERE id = %s
             """,
             [call_id],
         )
@@ -441,7 +441,7 @@ class TestApiLoggerDB:
 
         row = _fetchone(
             db_logger,
-            "SELECT raw_response_id FROM live_raw.api_call_log WHERE id = %s",
+            "SELECT raw_response_id FROM audit.api_call_log WHERE id = %s",
             [call_id],
         )
         archive_id = row[0]
@@ -451,7 +451,7 @@ class TestApiLoggerDB:
             db_logger,
             """
             SELECT endpoint, match_id, byte_size
-            FROM live_raw.api_response_archive WHERE id = %s
+            FROM audit.api_response_archive WHERE id = %s
             """,
             [archive_id],
         )
@@ -473,7 +473,7 @@ class TestApiLoggerDB:
         assert call_id is not None
         row = _fetchone(
             db_logger,
-            "SELECT raw_response_id FROM live_raw.api_call_log WHERE id = %s",
+            "SELECT raw_response_id FROM audit.api_call_log WHERE id = %s",
             [call_id],
         )
         assert row[0] is None
@@ -494,7 +494,7 @@ class TestApiLoggerDB:
         assert call_id is not None
         row = _fetchone(
             db_logger,
-            "SELECT raw_response_id FROM live_raw.api_call_log WHERE id = %s",
+            "SELECT raw_response_id FROM audit.api_call_log WHERE id = %s",
             [call_id],
         )
         assert row[0] is None, "events_by_date must not be archived"
@@ -529,19 +529,19 @@ class TestApiLoggerDB:
 
             with db_logger._conn.cursor() as cur:
                 cur.execute(
-                    "SELECT COUNT(*) FROM live_raw.api_call_log WHERE match_id = %s",
+                    "SELECT COUNT(*) FROM audit.api_call_log WHERE match_id = %s",
                     [sentinel],
                 )
                 call_log_count = cur.fetchone()[0]
                 cur.execute(
-                    "SELECT COUNT(*) FROM live_raw.api_response_archive WHERE match_id = %s",
+                    "SELECT COUNT(*) FROM audit.api_response_archive WHERE match_id = %s",
                     [sentinel],
                 )
                 archive_count = cur.fetchone()[0]
                 cur.execute(
                     """
                     SELECT endpoint
-                    FROM live_raw.api_response_archive
+                    FROM audit.api_response_archive
                     WHERE match_id = %s
                     ORDER BY endpoint
                     """,
@@ -555,11 +555,11 @@ class TestApiLoggerDB:
         finally:
             with db_logger._conn.cursor() as cur:
                 cur.execute(
-                    "DELETE FROM live_raw.api_call_log WHERE match_id = %s",
+                    "DELETE FROM audit.api_call_log WHERE match_id = %s",
                     [sentinel],
                 )
                 cur.execute(
-                    "DELETE FROM live_raw.api_response_archive WHERE match_id = %s",
+                    "DELETE FROM audit.api_response_archive WHERE match_id = %s",
                     [sentinel],
                 )
             db_logger._conn.commit()
@@ -575,7 +575,7 @@ class TestApiLoggerDB:
             assert call_id is not None
             row = _fetchone(
                 db_logger,
-                "SELECT raw_response_id FROM live_raw.api_call_log WHERE id = %s",
+                "SELECT raw_response_id FROM audit.api_call_log WHERE id = %s",
                 [call_id],
             )
             assert row[0] is None, f"{endpoint} archived despite raw_response=None"
@@ -594,7 +594,7 @@ class TestApiLoggerDB:
             db_logger,
             """
             SELECT http_status, latency_ms, error
-            FROM live_raw.api_call_log WHERE id = %s
+            FROM audit.api_call_log WHERE id = %s
             """,
             [call_id],
         )
@@ -619,7 +619,7 @@ class TestApiLoggerDB:
             db_logger,
             """
             SELECT request_params, response_summary
-            FROM live_raw.api_call_log WHERE id = %s
+            FROM audit.api_call_log WHERE id = %s
             """,
             [call_id],
         )
@@ -640,7 +640,7 @@ class TestApiLoggerDB:
         assert call_id is not None
         row = _fetchone(
             db_logger,
-            "SELECT poll_cycle_id FROM live_raw.api_call_log WHERE id = %s",
+            "SELECT poll_cycle_id FROM audit.api_call_log WHERE id = %s",
             [call_id],
         )
         assert str(row[0]) == str(cycle)
@@ -659,14 +659,14 @@ class TestApiLoggerDB:
             assert call_id is not None
             row = _fetchone(
                 db_logger,
-                "SELECT match_id FROM live_raw.api_call_log WHERE id = %s",
+                "SELECT match_id FROM audit.api_call_log WHERE id = %s",
                 [call_id],
             )
             assert row[0] == "14232981"
         finally:
             with db_logger._conn.cursor() as cur:
                 cur.execute(
-                    "DELETE FROM live_raw.api_call_log WHERE id = %s", [call_id]
+                    "DELETE FROM audit.api_call_log WHERE id = %s", [call_id]
                 )
             db_logger._conn.commit()
 

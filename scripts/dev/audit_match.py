@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Print a chronological audit timeline for one match_id from poll_audit_log.
+Print a chronological audit timeline for one match_id from audit.poll_audit_log.
 
 Usage:
     python scripts/dev/audit_match.py <match_id>
@@ -40,7 +40,7 @@ def main() -> int:
             cur.execute(
                 """
                 SELECT timestamp, event_type, detail, points_count
-                FROM poll_audit_log
+                FROM audit.poll_audit_log
                 WHERE match_id = %s
                 ORDER BY timestamp ASC
                 """,
