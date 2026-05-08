@@ -31,7 +31,7 @@ class MatchWorker:
         self,
         event: dict,
         rapidapi_key: str,
-        poll_interval: int = 15,
+        poll_interval: int = 10,
         poll_logger=None,
     ) -> None:
         self._match_id        = event["id"]
@@ -67,7 +67,7 @@ class MatchWorker:
         self._first_server: Optional[str] = None
         self._first_server_attempted_count: int = 0
         # Cap how many times we'll poll point-by-point before giving up. 40
-        # polls × 15s ≈ 10 minutes of attempts — well past when any real match
+        # polls × 10s ≈ 6.5 minutes of attempts — well past when any real match
         # produces its first point.
         self._first_server_max_attempts: int = 40
 
@@ -254,7 +254,7 @@ class MatchCollector:
         self,
         rapidapi_key: str,
         discovery_interval: int = 60,
-        worker_poll_interval: int = 15,
+        worker_poll_interval: int = 10,
         poll_logger=None,
     ) -> None:
         self._rapidapi_key        = rapidapi_key

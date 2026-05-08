@@ -185,8 +185,12 @@ def _ok_response(body):
     return resp
 
 
-def _err_response(status, text="server error"):
-    return MagicMock(status_code=status, text=text)
+def _err_response(status, text="server error", headers=None):
+    return MagicMock(
+        status_code=status,
+        text=text,
+        headers=headers if headers is not None else {},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -408,6 +412,101 @@ def test_two_failures_then_success(monkeypatch):
     assert final["http_status"] == 200
     assert final["error"] is None
     assert final["raw_response"] == success_body
+
+
+# ---------------------------------------------------------------------------
+# C2. Retry-After honoring on retry sleep
+# ---------------------------------------------------------------------------
+
+
+def _capture_sleep(monkeypatch):
+    """Patch time.sleep in the tennis_feed module to capture delays instead of
+    actually sleeping. Returns the list of recorded sleep durations."""
+    delays: list[float] = []
+    monkeypatch.setattr(
+        "src.live.tennis_feed.time.sleep",
+        lambda d: delays.append(d),
+    )
+    return delays
+
+
+def _feed_for_retry_test(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    return TennisFeed(api_key="x", api_logger=MagicMock())
+
+
+def test_retry_after_numeric_is_honored(monkeypatch):
+    feed = _feed_for_retry_test(monkeypatch)
+    monkeypatch.setattr(
+        "src.live.tennis_feed.requests.get",
+        lambda *a, **kw: _err_response(429, headers={"Retry-After": "5"}),
+    )
+    delays = _capture_sleep(monkeypatch)
+
+    with pytest.raises(ValueError):
+        feed.get_live_matches_raw()
+
+    # 3 attempts → 2 inter-attempt sleeps, both should reflect the header.
+    assert delays == [5.0, 5.0]
+
+
+def test_retry_after_is_capped_at_30s(monkeypatch):
+    feed = _feed_for_retry_test(monkeypatch)
+    monkeypatch.setattr(
+        "src.live.tennis_feed.requests.get",
+        lambda *a, **kw: _err_response(429, headers={"Retry-After": "100"}),
+    )
+    delays = _capture_sleep(monkeypatch)
+
+    with pytest.raises(ValueError):
+        feed.get_live_matches_raw()
+
+    assert delays == [30.0, 30.0]
+
+
+def test_429_without_retry_after_uses_default_delay(monkeypatch):
+    feed = _feed_for_retry_test(monkeypatch)
+    monkeypatch.setattr(
+        "src.live.tennis_feed.requests.get",
+        lambda *a, **kw: _err_response(429, headers={}),
+    )
+    delays = _capture_sleep(monkeypatch)
+
+    with pytest.raises(ValueError):
+        feed.get_live_matches_raw()
+
+    # Default _RETRY_DELAY is 2.0s.
+    assert delays == [2.0, 2.0]
+
+
+def test_retry_after_malformed_falls_back_to_default(monkeypatch):
+    feed = _feed_for_retry_test(monkeypatch)
+    monkeypatch.setattr(
+        "src.live.tennis_feed.requests.get",
+        lambda *a, **kw: _err_response(429, headers={"Retry-After": "abc"}),
+    )
+    delays = _capture_sleep(monkeypatch)
+
+    with pytest.raises(ValueError):
+        feed.get_live_matches_raw()
+
+    assert delays == [2.0, 2.0]
+
+
+def test_transport_error_uses_default_delay(monkeypatch):
+    feed = _feed_for_retry_test(monkeypatch)
+
+    def boom(*a, **kw):
+        raise _requests.ConnectionError("dropped")
+
+    monkeypatch.setattr("src.live.tennis_feed.requests.get", boom)
+    delays = _capture_sleep(monkeypatch)
+
+    with pytest.raises(_requests.RequestException):
+        feed.get_live_matches_raw()
+
+    # No response object → fallback to _RETRY_DELAY (2.0s).
+    assert delays == [2.0, 2.0]
 
 
 # ---------------------------------------------------------------------------

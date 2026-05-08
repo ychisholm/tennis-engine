@@ -8,7 +8,7 @@ Four states:
                or odds polling; system is armed.
   LIVE       — at least one qualifying match is in progress. MatchCollector
                runs its 60s discovery loop; each MatchWorker polls its match
-               every 15s and event-triggers odds fetches (rate-gated).
+               every 10s and event-triggers odds fetches (rate-gated).
   (completion of single matches is handled inline by MatchCollector; the
    system returns to IDLE only when no matches are live or upcoming.)
 """

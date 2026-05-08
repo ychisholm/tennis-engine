@@ -108,7 +108,7 @@ def test_spawn_pre_match_worker_is_idempotent():
     import threading
     collector._rapidapi_key = "test"
     collector._discovery_interval = 60
-    collector._worker_poll_interval = 15
+    collector._worker_poll_interval = 10
     collector._poll_logger = MagicMock()
     collector._active_lock = threading.Lock()
     collector._active = {}
@@ -149,7 +149,7 @@ def test_spawn_pre_match_worker_logs_match_discovered_with_pre_spawn_detail():
     collector = MatchCollector.__new__(MatchCollector)
     collector._rapidapi_key = "test"
     collector._discovery_interval = 60
-    collector._worker_poll_interval = 15
+    collector._worker_poll_interval = 10
     collector._poll_logger = MagicMock()
     collector._active_lock = threading.Lock()
     collector._active = {}
@@ -281,7 +281,7 @@ def _bare_worker(match_id: int = 1, status_terminal=("canceled", "postponed", "w
     w._country_b = None
     w._tournament_name = "T"
     w._category = "atp"
-    w._poll_interval = 15
+    w._poll_interval = 10
     w._running = True
     w._poll_logger = MagicMock()
     w._spawned_at = time.time()

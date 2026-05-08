@@ -406,7 +406,7 @@ class MatchLogger:
                     return
 
             # Skip idempotent repolls: if the most recent row for this match
-            # has the identical score state, the 15s poller is just observing
+            # has the identical score state, the 10s poller is just observing
             # an unchanged game. Compare against the *most recent* row only —
             # a match against an earlier row (e.g. deuce returning after AD)
             # is a real new point and must be inserted.

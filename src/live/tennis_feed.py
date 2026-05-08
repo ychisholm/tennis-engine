@@ -19,7 +19,26 @@ _log = logging.getLogger(__name__)
 
 _BASE_URL = "https://tennisapi1.p.rapidapi.com"
 _MAX_RETRIES = 3
-_RETRY_DELAY = 1.0
+_RETRY_DELAY = 2.0
+_RETRY_AFTER_CAP = 30.0
+
+
+def _compute_retry_delay(resp: "requests.Response | None") -> float:
+    """Honor a numeric Retry-After header (seconds), capped at _RETRY_AFTER_CAP.
+    Falls back to _RETRY_DELAY on transport errors, missing header, or any
+    non-numeric value (e.g. HTTP-date form, which RapidAPI does not emit)."""
+    if resp is None:
+        return _RETRY_DELAY
+    raw = resp.headers.get("Retry-After")
+    if raw is None:
+        return _RETRY_DELAY
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        return _RETRY_DELAY
+    if seconds <= 0:
+        return _RETRY_DELAY
+    return min(seconds, _RETRY_AFTER_CAP)
 
 
 class TennisFeed:
@@ -92,6 +111,7 @@ class TennisFeed:
             latency_ms: int | None = None
             raw_response: Any = None
             error: str | None = None
+            resp = None
             try:
                 resp = requests.get(url, headers=self._headers, timeout=10)
                 latency_ms = int((time.monotonic() - start) * 1000)
@@ -110,13 +130,14 @@ class TennisFeed:
                 latency_ms = int((time.monotonic() - start) * 1000)
                 error = str(exc) or exc.__class__.__name__
                 last_exc = exc
+                resp = None
             self._log_attempt(
                 endpoint, path, params, match_id,
                 http_status, latency_ms, raw_response, error,
                 poll_cycle_id=poll_cycle_id,
             )
             if attempt < _MAX_RETRIES - 1:
-                time.sleep(_RETRY_DELAY)
+                time.sleep(_compute_retry_delay(resp))
         raise last_exc
 
     def get_live_matches(self, *, poll_cycle_id: "uuid.UUID | None" = None) -> list[dict]:
