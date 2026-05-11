@@ -1573,14 +1573,14 @@ function PointByPoint({ allPoints, playerA, playerB }) {
             <span className="gap-mark" title="Data gap — game winner inferred from match-detail score">~</span>
           )}
           <div className="pbp-names">
-            <div className="pbp-srv-row">
+            <div className={srv === 'home' ? 'pbp-srv-row' : 'pbp-ret-row'}>
               {srv === 'home' ? <span className="srv-dot">●</span> : <span className="srv-sp"/>}
               <span className="pbp-name-txt">{aName}</span>
               {srv === 'home' && isBreak && <span className="bp-tag">Break</span>}
               {srv === 'home' && !isBreak && hasBP && <span className="bp-tag">BP</span>}
             </div>
             <div className="pbp-lbl-gap"/>
-            <div className="pbp-ret-row">
+            <div className={srv === 'away' ? 'pbp-srv-row' : 'pbp-ret-row'}>
               {srv === 'away' ? <span className="srv-dot">●</span> : <span className="srv-sp"/>}
               <span className="pbp-name-txt">{bName}</span>
               {srv === 'away' && isBreak && <span className="bp-tag">Break</span>}

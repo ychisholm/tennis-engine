@@ -229,6 +229,25 @@ def _derive_point_winner(prev: dict, curr: dict) -> str | None:
     return None
 
 
+def _infer_first_row_winner(curr: dict) -> str | None:
+    """For the very first match_states row of a match (no prev row available),
+    infer the point_winner when exactly one side has a non-zero point score
+    and the other is at '0'. That can only happen if the non-zero side just
+    won the point that produced this row.
+
+    Returns None when the inference is ambiguous: both sides non-zero (we
+    missed multiple points), or both at 0 (no point played yet)."""
+    h = str(curr.get("home_current_point") or "0")
+    a = str(curr.get("away_current_point") or "0")
+    h_nonzero = h != "0"
+    a_nonzero = a != "0"
+    if h_nonzero and not a_nonzero:
+        return "home"
+    if a_nonzero and not h_nonzero:
+        return "away"
+    return None
+
+
 def _retro_winner_for_prev_game(prev: dict, curr: dict) -> str | None:
     """When curr begins a new game, infer who won prev's game from the games
     counters that incremented between prev and curr."""
@@ -496,10 +515,13 @@ class MatchLogger:
             # row begins a new game (the 0-0 starter then represents the
             # game-winning point that polling missed). Stats counts depend on
             # this — without the fallback, every game's deciding point goes
-            # unattributed.
+            # unattributed. When this is the first row for the match (no prev),
+            # infer from an unambiguous 0-vs-non-zero score so the dashboard
+            # can highlight the opening point.
             point_winner = (
                 _derive_point_winner(prev, curr_state)
                 or _retro_winner_for_prev_game(prev, curr_state)
+                or (_infer_first_row_winner(curr_state) if prev is None else None)
             )
 
             cur.execute(_UPSERT_MATCH_STATE, [

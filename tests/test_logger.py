@@ -298,3 +298,46 @@ def test_backfill_first_server_swallows_errors(logger, monkeypatch):
     )
     # Must not raise — failure is logged and swallowed.
     logger.backfill_first_server(_MID, "home")
+
+
+# ---------------------------------------------------------------------------
+# _infer_first_row_winner — pure unit tests, no DB needed
+# (kept inside the test_logger module since they exercise logger internals)
+# ---------------------------------------------------------------------------
+
+def test_infer_first_row_winner_home_at_15_zero():
+    """Worker's first observation is 15-0 → home scored the opening point."""
+    from src.live.logger import _infer_first_row_winner
+    curr = {"home_current_point": "15", "away_current_point": "0"}
+    assert _infer_first_row_winner(curr) == "home"
+
+
+def test_infer_first_row_winner_away_at_zero_15():
+    """Worker's first observation is 0-15 → away scored the opening point.
+    This is the Medvedev/Ruiz case: worker spun up after Medvedev won the
+    first point, score was already 0-15 when we started polling."""
+    from src.live.logger import _infer_first_row_winner
+    curr = {"home_current_point": "0", "away_current_point": "15"}
+    assert _infer_first_row_winner(curr) == "away"
+
+
+def test_infer_first_row_winner_returns_none_at_zero_zero():
+    """0-0 means no point played yet — nothing to infer."""
+    from src.live.logger import _infer_first_row_winner
+    curr = {"home_current_point": "0", "away_current_point": "0"}
+    assert _infer_first_row_winner(curr) is None
+
+
+def test_infer_first_row_winner_returns_none_when_both_nonzero():
+    """15-15 is ambiguous (two points played, order unknown) — don't guess."""
+    from src.live.logger import _infer_first_row_winner
+    curr = {"home_current_point": "15", "away_current_point": "15"}
+    assert _infer_first_row_winner(curr) is None
+
+
+def test_infer_first_row_winner_handles_higher_first_observations():
+    """If we missed several points and the first observation is 30-0, home
+    still won the most-recent point (the one that produced this row)."""
+    from src.live.logger import _infer_first_row_winner
+    curr = {"home_current_point": "30", "away_current_point": "0"}
+    assert _infer_first_row_winner(curr) == "home"
