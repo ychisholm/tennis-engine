@@ -341,3 +341,74 @@ def test_infer_first_row_winner_handles_higher_first_observations():
     from src.live.logger import _infer_first_row_winner
     curr = {"home_current_point": "30", "away_current_point": "0"}
     assert _infer_first_row_winner(curr) == "home"
+
+
+# ---------------------------------------------------------------------------
+# _derive_point_winner — tiebreak score handling
+# Tiebreak point scores are integers ("0","1","2",...,"7"), not the regular
+# "0/15/30/40/AD" tokens. The pre-fix code dict-looked-up every score and
+# returned rank 0 for any integer string, so deltas inside a tiebreak were
+# indistinguishable and point_winner was NULL for every tiebreak point.
+# ---------------------------------------------------------------------------
+
+def _tb_prev_curr(prev_h, prev_a, curr_h, curr_a):
+    return (
+        {"home_sets_won": 0, "away_sets_won": 0,
+         "home_current_games": 6, "away_current_games": 6,
+         "home_current_point": prev_h, "away_current_point": prev_a},
+        {"home_sets_won": 0, "away_sets_won": 0,
+         "home_current_games": 6, "away_current_games": 6,
+         "home_current_point": curr_h, "away_current_point": curr_a},
+    )
+
+
+def test_derive_point_winner_tiebreak_away_scores_first():
+    """0-0 → 0-1 in a tiebreak: away won the point."""
+    from src.live.logger import _derive_point_winner
+    prev, curr = _tb_prev_curr("0", "0", "0", "1")
+    assert _derive_point_winner(prev, curr) == "away"
+
+
+def test_derive_point_winner_tiebreak_home_scores_after_away():
+    """0-3 → 1-3 in a tiebreak: home scored."""
+    from src.live.logger import _derive_point_winner
+    prev, curr = _tb_prev_curr("0", "3", "1", "3")
+    assert _derive_point_winner(prev, curr) == "home"
+
+
+def test_derive_point_winner_tiebreak_at_5_5_home_to_6_5():
+    """Mid-tiebreak transition through 5-5 keeps working at higher scores."""
+    from src.live.logger import _derive_point_winner
+    prev, curr = _tb_prev_curr("5", "5", "6", "5")
+    assert _derive_point_winner(prev, curr) == "home"
+
+
+def test_derive_point_winner_tiebreak_above_10():
+    """Match tiebreaks (and long tiebreaks) can reach double-digit scores."""
+    from src.live.logger import _derive_point_winner
+    prev, curr = _tb_prev_curr("9", "10", "9", "11")
+    assert _derive_point_winner(prev, curr) == "away"
+
+
+def test_derive_point_winner_regular_game_still_works():
+    """Pre-existing regular-game logic must keep working after the rank fix."""
+    from src.live.logger import _derive_point_winner
+    prev = {"home_sets_won": 0, "away_sets_won": 0,
+            "home_current_games": 2, "away_current_games": 1,
+            "home_current_point": "15", "away_current_point": "30"}
+    curr = {"home_sets_won": 0, "away_sets_won": 0,
+            "home_current_games": 2, "away_current_games": 1,
+            "home_current_point": "15", "away_current_point": "40"}
+    assert _derive_point_winner(prev, curr) == "away"
+
+
+def test_derive_point_winner_regular_deuce_reset_still_works():
+    """AD → 40 deuce reset: away scored on home's AD."""
+    from src.live.logger import _derive_point_winner
+    prev = {"home_sets_won": 0, "away_sets_won": 0,
+            "home_current_games": 1, "away_current_games": 1,
+            "home_current_point": "AD", "away_current_point": "40"}
+    curr = {"home_sets_won": 0, "away_sets_won": 0,
+            "home_current_games": 1, "away_current_games": 1,
+            "home_current_point": "40", "away_current_point": "40"}
+    assert _derive_point_winner(prev, curr) == "away"

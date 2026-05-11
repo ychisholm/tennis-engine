@@ -184,6 +184,23 @@ UPDATE live.match_states
 _SCORE_RANK_LOGGER: dict[str, int] = {"0": 0, "15": 1, "30": 2, "40": 3, "AD": 4, "A": 4}
 
 
+def _rank_point_score(s: Any) -> int:
+    """Rank a point score for delta comparison.
+
+    Regular-game tokens ("0", "15", "30", "40", "AD", "A") use the ordinal
+    rank above. Tiebreak point scores are integer strings ("0", "1", "2",
+    ...) and fall through to int() parsing. Within a single game both sides'
+    scores always use the same scheme, so the comparison is consistent.
+    """
+    s = str(s or "0")
+    if s in _SCORE_RANK_LOGGER:
+        return _SCORE_RANK_LOGGER[s]
+    try:
+        return int(s)
+    except (ValueError, TypeError):
+        return 0
+
+
 def _clean(v: Any) -> Any:
     """Convert NaN/inf to None so Postgres stores NULL."""
     if isinstance(v, float) and not math.isfinite(v):
@@ -217,10 +234,10 @@ def _derive_point_winner(prev: dict, curr: dict) -> str | None:
     if not (same_sets and same_games):
         return None
 
-    ph = _SCORE_RANK_LOGGER.get(str(prev.get("home_current_point") or "0"), 0)
-    pa = _SCORE_RANK_LOGGER.get(str(prev.get("away_current_point") or "0"), 0)
-    ch = _SCORE_RANK_LOGGER.get(str(curr.get("home_current_point") or "0"), 0)
-    ca = _SCORE_RANK_LOGGER.get(str(curr.get("away_current_point") or "0"), 0)
+    ph = _rank_point_score(prev.get("home_current_point"))
+    pa = _rank_point_score(prev.get("away_current_point"))
+    ch = _rank_point_score(curr.get("home_current_point"))
+    ca = _rank_point_score(curr.get("away_current_point"))
 
     if ch > ph or ca < pa:
         return "home"
