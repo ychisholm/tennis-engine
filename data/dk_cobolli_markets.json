@@ -1,0 +1,94 @@
+{
+  "Moneyline": [
+    {
+      "name": "Flavio Cobolli",
+      "american": "+128"
+    },
+    {
+      "name": "Thiago Agustin Tirante",
+      "american": "-163"
+    }
+  ],
+  "Game Winner": [
+    {
+      "name": "Flavio Cobolli",
+      "american": "-640"
+    },
+    {
+      "name": "Thiago Agustin Tirante",
+      "american": "+372"
+    },
+    {
+      "name": "Flavio Cobolli",
+      "american": "+326"
+    }
+  ],
+  "Point Winner": [
+    {
+      "name": "Flavio Cobolli",
+      "american": "-266"
+    },
+    {
+      "name": "Thiago Agustin Tirante",
+      "american": "+186"
+    },
+    {
+      "name": "Flavio Cobolli",
+      "american": "-203"
+    }
+  ],
+  "Set Winner": [
+    {
+      "name": "Flavio Cobolli",
+      "american": "-150"
+    },
+    {
+      "name": "Thiago Agustin Tirante",
+      "american": "+110"
+    }
+  ],
+  "Set Betting": [
+    {
+      "name": "2:1",
+      "american": "+125"
+    },
+    {
+      "name": "2:0",
+      "american": "+110"
+    },
+    {
+      "name": "2:1",
+      "american": "+380"
+    }
+  ],
+  "Total Sets": [
+    {
+      "name": "Over",
+      "american": "2.5"
+    },
+    {
+      "name": "Under",
+      "american": "2.5"
+    }
+  ],
+  "Player to Win at Least One Set": [
+    {
+      "name": "Flavio Cobolli Yes",
+      "american": "-165"
+    },
+    {
+      "name": "Flavio Cobolli No",
+      "american": "+110"
+    }
+  ],
+  "Correct Score - Listed Set": [
+    {
+      "name": "6:1",
+      "american": "+2000"
+    },
+    {
+      "name": "6:1",
+      "american": "+6000"
+    }
+  ]
+}

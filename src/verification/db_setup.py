@@ -2,7 +2,7 @@
 Phase 2 audit-tables setup.
 
 Idempotently creates the two tables the daily live-tracking validator
-writes to (audit.verification_reports and audit.live_gap_reports) plus
+writes to (audit.verification_reports and audit.gap_reports) plus
 their indexes. Re-callable from anywhere we need to ensure these tables
 exist; the migration script in scripts/setup/migrate_phase2_audit_tables.py
 is the canonical caller.
@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS audit.verification_reports (
     verification_run_id     UUID NOT NULL,
     run_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     match_id                VARCHAR(100) NOT NULL,
+    source                  TEXT NOT NULL,
     live_point_count        INT NOT NULL,
     inferred_missing_points INT NOT NULL DEFAULT 0,
     live_final_score        TEXT,
@@ -34,11 +35,12 @@ CREATE TABLE IF NOT EXISTS audit.verification_reports (
 )
 """
 
-_LIVE_GAP_REPORTS_DDL = """
-CREATE TABLE IF NOT EXISTS audit.live_gap_reports (
+_GAP_REPORTS_DDL = """
+CREATE TABLE IF NOT EXISTS audit.gap_reports (
     id                      BIGSERIAL PRIMARY KEY,
     verification_run_id     UUID NOT NULL,
     match_id                VARCHAR(100) NOT NULL,
+    source                  TEXT NOT NULL,
     gap_type                TEXT NOT NULL,
     severity                TEXT,
     description             TEXT,
@@ -57,10 +59,10 @@ _INDEXES: tuple[tuple[str, str], ...] = (
     ("idx_verification_reports_run_id",   "audit.verification_reports (verification_run_id)"),
     ("idx_verification_reports_run_at",   "audit.verification_reports (run_at)"),
     ("idx_verification_reports_verdict",  "audit.verification_reports (verdict)"),
-    ("idx_live_gap_reports_match_id",     "audit.live_gap_reports (match_id)"),
-    ("idx_live_gap_reports_run_id",       "audit.live_gap_reports (verification_run_id)"),
-    ("idx_live_gap_reports_gap_type",     "audit.live_gap_reports (gap_type)"),
-    ("idx_live_gap_reports_severity",     "audit.live_gap_reports (severity)"),
+    ("idx_gap_reports_match_id",          "audit.gap_reports (match_id)"),
+    ("idx_gap_reports_run_id",            "audit.gap_reports (verification_run_id)"),
+    ("idx_gap_reports_gap_type",          "audit.gap_reports (gap_type)"),
+    ("idx_gap_reports_severity",          "audit.gap_reports (severity)"),
 )
 
 
@@ -86,7 +88,7 @@ def _index_exists(cur, schema: str, index: str) -> bool:
 
 def setup_audit_tables(conn) -> Dict[str, str]:
     """
-    Idempotently create audit.verification_reports and audit.live_gap_reports
+    Idempotently create audit.verification_reports and audit.gap_reports
     plus their indexes.
 
     Takes an open psycopg2 connection. Caller is responsible for
@@ -94,7 +96,7 @@ def setup_audit_tables(conn) -> Dict[str, str]:
 
     Returns a dict like
         {"verification_reports": "CREATED" | "SKIP",
-         "live_gap_reports":     "CREATED" | "SKIP",
+         "gap_reports":          "CREATED" | "SKIP",
          "indexes":              "CREATED" | "SKIP"}
     so the caller can print status. CREATED vs SKIP is determined by
     querying information_schema BEFORE running the CREATE statement.
@@ -107,9 +109,9 @@ def setup_audit_tables(conn) -> Dict[str, str]:
         cur.execute(_VERIFICATION_REPORTS_DDL)
         result["verification_reports"] = "SKIP" if had_verification else "CREATED"
 
-        had_gap_reports = _table_exists(cur, "audit", "live_gap_reports")
-        cur.execute(_LIVE_GAP_REPORTS_DDL)
-        result["live_gap_reports"] = "SKIP" if had_gap_reports else "CREATED"
+        had_gap_reports = _table_exists(cur, "audit", "gap_reports")
+        cur.execute(_GAP_REPORTS_DDL)
+        result["gap_reports"] = "SKIP" if had_gap_reports else "CREATED"
 
         any_index_missing = any(
             not _index_exists(cur, "audit", idx_name) for idx_name, _ in _INDEXES

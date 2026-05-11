@@ -2,9 +2,12 @@
 """
 Phase 2 audit-tables migration.
 
-Adds audit.verification_reports and audit.live_gap_reports plus their
+Adds audit.verification_reports and audit.gap_reports plus their
 indexes. The migration is purely additive — no existing tables or
 columns are modified.
+
+Run scripts/setup/migrate_book_and_audit_v2.py FIRST on any pre-v2
+database — this helper creates tables with the post-rename schema.
 
 Runs inside a single transaction. Any failure rolls every operation
 back. Re-running after a successful run is a no-op (idempotent).
@@ -48,7 +51,7 @@ def main() -> int:
 
     print("Migration committed. Operations performed:")
     print(f"  {result['verification_reports']:<8} audit.verification_reports")
-    print(f"  {result['live_gap_reports']:<8} audit.live_gap_reports")
+    print(f"  {result['gap_reports']:<8} audit.gap_reports")
     print(f"  {result['indexes']:<8} indexes")
     print()
     print("Migration complete")

@@ -1,0 +1,845 @@
+{
+  "match_url": "https://sportsbook.draftkings.com/event/flavio-cobolli-vs-thiago-agustin-tirante/34127760",
+  "match_title": "Flavio Cobolli vs Thiago Agustin Tirante Tennis Betting Odds & Lines | DraftKings Sportsbook",
+  "interesting_elements": [
+    {
+      "cls": "_3ZErrQVpabDbQfSIzGMy4h sportsbook",
+      "text": "Responsible Gaming"
+    },
+    {
+      "cls": "WIMc-OHFyeuVmsNZj2saa sportsbook",
+      "text": "Want to start placing bets?LOG IN | SIGN UP"
+    },
+    {
+      "cls": "sportsbook-subnav",
+      "text": "A-Z SportsA-Z Sports"
+    },
+    {
+      "cls": "sportsbook-subnav__responsive-more-nav",
+      "text": "A-Z Sports"
+    },
+    {
+      "cls": "sportsbook-subnav__responsive-more-nav__links-wrapper",
+      "text": "A-Z Sports"
+    },
+    {
+      "cls": "sportsbook-subnav__more-toggle",
+      "text": "A-Z Sports"
+    },
+    {
+      "cls": "sportsbook-subnav__link",
+      "text": "A-Z Sports"
+    },
+    {
+      "cls": "sportsbook-subnav__links-wrapper",
+      "text": "A-Z Sports"
+    },
+    {
+      "cls": "sportsbook-subnav__links",
+      "text": "A-Z Sports"
+    },
+    {
+      "cls": "sportsbook-subnav__more-toggle",
+      "text": "A-Z Sports"
+    },
+    {
+      "cls": "sportsbook-subnav__link",
+      "text": "A-Z Sports"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__header sportsbook-expandable-shell__header--isExpanded",
+      "text": "POPULAR"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--popular",
+      "text": "POPULAR"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title",
+      "text": "POPULAR"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title-text",
+      "text": "POPULAR"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "NBA"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "NBA"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "NBA"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "NBA"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "MLB"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "MLB"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "MLB"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "MLB"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "NHL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "NHL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "NHL"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "NHL"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "ATP - Rome"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "ATP - Rome"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "ATP - Rome"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "ATP - Rome"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "English Premier League"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "English Premier League"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "English Premier League"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "English Premier League"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "WTA - Rome"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "WTA - Rome"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "WTA - Rome"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "WTA - Rome"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "PGA Championship"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "PGA Championship"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "PGA Championship"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "PGA Championship"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "Spain - La Liga"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "Spain - La Liga"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "Spain - La Liga"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "Spain - La Liga"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "Portugal - Primeira Liga"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "Portugal - Primeira Liga"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "Portugal - Primeira Liga"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "Portugal - Primeira Liga"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "Italy - Serie A"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "Italy - Serie A"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "Italy - Serie A"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "Italy - Serie A"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "WNBA"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "WNBA"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "WNBA"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "WNBA"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "IPL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "IPL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "IPL"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "IPL"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "England - Championship"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "England - Championship"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "England - Championship"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "England - Championship"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "WTA - Parma"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "WTA - Parma"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "WTA - Parma"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "WTA - Parma"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "College Baseball"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "College Baseball"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "College Baseball"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "College Baseball"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "Romania - Liga 1"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "Romania - Liga 1"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "Romania - Liga 1"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "Romania - Liga 1"
+    },
+    {
+      "cls": "sportsbook-navigation-items-list",
+      "text": "SPORT TEAMS"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--with-icon",
+      "text": "SPORT TEAMS"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-items--access sportsbook-navigation-item-title--league",
+      "text": "SPORT TEAMS"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__header sportsbook-expandable-shell__header--isExpanded",
+      "text": "A-Z SPORTS"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--sport",
+      "text": "A-Z SPORTS"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title",
+      "text": "A-Z SPORTS"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title-text",
+      "text": "A-Z SPORTS"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__wrapper",
+      "text": "AUSSIE RULES"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__header sportsbook-expandable-shell__header--isCollapsed",
+      "text": "AUSSIE RULES"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--sport",
+      "text": "AUSSIE RULES"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title",
+      "text": "AUSSIE RULES"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title-text",
+      "text": "AUSSIE RULES"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__body sportsbook-expandable-shell__hidden",
+      "text": "AFL"
+    },
+    {
+      "cls": "sportsbook-navigation-items-list sportsbook-navigation-items-list--league ",
+      "text": "AFL"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "AFL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "AFL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "AFL"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "AFL"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__wrapper",
+      "text": "BASEBALL"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__header sportsbook-expandable-shell__header--isCollapsed",
+      "text": "BASEBALL"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--sport",
+      "text": "BASEBALL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title",
+      "text": "BASEBALL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title-text",
+      "text": "BASEBALL"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__body sportsbook-expandable-shell__hidden",
+      "text": "MLBCollege BaseballJapan NPBSouth Korean KBOTaiwan - CPBL"
+    },
+    {
+      "cls": "sportsbook-navigation-items-list sportsbook-navigation-items-list--league ",
+      "text": "MLBCollege BaseballJapan NPBSouth Korean KBOTaiwan - CPBL"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "MLB"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "MLB"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "MLB"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "MLB"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "College Baseball"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "College Baseball"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "College Baseball"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "College Baseball"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "Japan NPB"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "Japan NPB"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "Japan NPB"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "Japan NPB"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "South Korean KBO"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "South Korean KBO"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "South Korean KBO"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "South Korean KBO"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "Taiwan - CPBL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "Taiwan - CPBL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "Taiwan - CPBL"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "Taiwan - CPBL"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__wrapper",
+      "text": "BASKETBALL"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__header sportsbook-expandable-shell__header--isCollapsed",
+      "text": "BASKETBALL"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--sport",
+      "text": "BASKETBALL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title",
+      "text": "BASKETBALL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title-text",
+      "text": "BASKETBALL"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__body sportsbook-expandable-shell__hidden",
+      "text": "NBAWNBACollege Basketball (M)EuroLeagueView All (17)"
+    },
+    {
+      "cls": "sportsbook-navigation-items-list sportsbook-navigation-items-list--league ",
+      "text": "NBAWNBACollege Basketball (M)EuroLeagueView All (17)"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "NBA"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "NBA"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "NBA"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "NBA"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "WNBA"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "WNBA"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "WNBA"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "WNBA"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "College Basketball (M)"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "College Basketball (M)"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "College Basketball (M)"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "College Basketball (M)"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "EuroLeague"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "EuroLeague"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "EuroLeague"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "EuroLeague"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--view-all",
+      "text": "View All (17)"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--view-all",
+      "text": "View All (17)"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--view-all",
+      "text": "View All (17)"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "View All (17)"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__wrapper",
+      "text": "BOXING"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__header sportsbook-expandable-shell__header--isCollapsed",
+      "text": "BOXING"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--sport",
+      "text": "BOXING"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title",
+      "text": "BOXING"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title-text",
+      "text": "BOXING"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__body sportsbook-expandable-shell__hidden",
+      "text": "Boxing"
+    },
+    {
+      "cls": "sportsbook-navigation-items-list sportsbook-navigation-items-list--league ",
+      "text": "Boxing"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "Boxing"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "Boxing"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "Boxing"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "Boxing"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__wrapper",
+      "text": "CRICKET"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__header sportsbook-expandable-shell__header--isCollapsed",
+      "text": "CRICKET"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--sport",
+      "text": "CRICKET"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title",
+      "text": "CRICKET"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title-text",
+      "text": "CRICKET"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__body sportsbook-expandable-shell__hidden",
+      "text": "Test MatchesIPLICC T20 World CupICC T20 World Cup WomenView All (15)"
+    },
+    {
+      "cls": "sportsbook-navigation-items-list sportsbook-navigation-items-list--league ",
+      "text": "Test MatchesIPLICC T20 World CupICC T20 World Cup WomenView All (15)"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "Test Matches"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "Test Matches"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "Test Matches"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "Test Matches"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "IPL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "IPL"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "IPL"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "IPL"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "ICC T20 World Cup"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "ICC T20 World Cup"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "ICC T20 World Cup"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "ICC T20 World Cup"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "ICC T20 World Cup Women"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "ICC T20 World Cup Women"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "ICC T20 World Cup Women"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "ICC T20 World Cup Women"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--view-all",
+      "text": "View All (15)"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--view-all",
+      "text": "View All (15)"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--view-all",
+      "text": "View All (15)"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "View All (15)"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__wrapper",
+      "text": "CYCLING"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__header sportsbook-expandable-shell__header--isCollapsed",
+      "text": "CYCLING"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--sport",
+      "text": "CYCLING"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title",
+      "text": "CYCLING"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title-text",
+      "text": "CYCLING"
+    },
+    {
+      "cls": "sportsbook-expandable-shell__body sportsbook-expandable-shell__hidden",
+      "text": "Giro d`ItaliaTour de France"
+    },
+    {
+      "cls": "sportsbook-navigation-items-list sportsbook-navigation-items-list--league ",
+      "text": "Giro d`ItaliaTour de France"
+    },
+    {
+      "cls": "sportsbook-navigation-item sportsbook-navigation-item--league",
+      "text": "Giro d`Italia"
+    },
+    {
+      "cls": "sportsbook-navigation-item-link sportsbook-navigation-item-link--league",
+      "text": "Giro d`Italia"
+    },
+    {
+      "cls": "sportsbook-navigation-item-title sportsbook-navigation-item-title--league",
+      "text": "Giro d`Italia"
+    },
+    {
+      "cls": "sportsbook-navitation-item-title-text",
+      "text": "Giro d`Italia"
+    }
+  ],
+  "moneyline_blocks": [
+    {
+      "block_text": "DAILY FANTASY SPORTSBOOK CASINO PICK6 LOTTERY PREDICTIONS RACING MORE Responsible Gaming Home My Bets Live In-Game Rewards How To Bet VIP Pools Social MORE Want to start placing bets? Log In POPULAR NBA MLB NHL ATP - Rome English Premier League WTA - Rome PGA Championship Spain - La Liga Portugal - Primeira Liga Italy - Serie A WNBA IPL England - Championship WTA - Parma College Baseball Romania - Liga 1 SPORT TEAMS A-Z SPORTS AUSSIE RULES BASEBALL BASKETBALL BOXING CRICKET CYCLING DARTS E-SPORTS FOOTBALL GOLF HOCKEY LACROSSE MMA MOTORSPORTS RUGBY LEAGUE RUGBY UNION SNOOKER SOCCER SOFTBALL TAB"
+    }
+  ],
+  "american_odds_tokens": [
+    "+127",
+    "+810",
+    "+383",
+    "+153",
+    "+153",
+    "+152",
+    "+178",
+    "+148",
+    "+144",
+    "+147",
+    "+1300",
+    "+3100",
+    "+1500",
+    "+1200",
+    "+430",
+    "+400",
+    "+1400",
+    "+3100",
+    "+2100",
+    "+2000",
+    "+1300",
+    "+192",
+    "+900",
+    "+420",
+    "+525",
+    "+1600",
+    "+440",
+    "+2000",
+    "+480",
+    "+1900",
+    "-800",
+    "-2026"
+  ]
+}
