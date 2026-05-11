@@ -463,14 +463,29 @@ def validate_match(
             else:
                 winner = None
 
+            # Two legal shapes for a clean set transition:
+            #   fresh_set_start — a new set has just begun (games 0-0, score 0-0)
+            #   match_end_shape — match just ended; new row carries the closing
+            #     set's actual final games, with point score zeroed. The writer
+            #     emits this shape on the terminal 'finished' poll.
+            fresh_set_start = (
+                nxt.games_a == 0 and nxt.games_b == 0
+                and nxt.score_a == "0" and nxt.score_b == "0"
+            )
+            match_end_shape = (
+                winner is not None
+                and nxt.score_a == "0" and nxt.score_b == "0"
+                and _is_valid_set_end(nxt.games_a, nxt.games_b, winner)
+            )
             valid_jump = (
                 sets_diff == 1
                 and winner is not None
-                and nxt.games_a == 0 and nxt.games_b == 0
-                and nxt.score_a == "0" and nxt.score_b == "0"
+                and (fresh_set_start or match_end_shape)
             )
             if valid_jump:
-                if winner == "A":
+                if match_end_shape:
+                    implied_games = (nxt.games_a, nxt.games_b)
+                elif winner == "A":
                     implied_games = (walk.games_a + 1, walk.games_b)
                 else:
                     implied_games = (walk.games_a, walk.games_b + 1)

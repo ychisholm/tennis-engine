@@ -416,10 +416,30 @@ class MatchLogger:
         if current_set < 1 or current_set > 5:
             return
 
-        home_current_games = parsed_detail.get(f"home_period{current_set}") or 0
-        away_current_games = parsed_detail.get(f"away_period{current_set}") or 0
-        home_pt_s = str(home_pt)
-        away_pt_s = str(away_pt)
+        # On the terminal 'finished' poll, sets_won already reflects the won
+        # match, so period{current_set} points one past the last played set and
+        # comes back NULL. Aim at the highest populated periodN instead — this
+        # handles both clean finishes and mid-set retirements. Also zero out
+        # the live point strings: the API leaves stale values from the last
+        # in-progress poll, which makes the row look like a phantom in-progress
+        # state and breaks downstream validators.
+        status_str = parsed_detail.get("status")
+        if status_str == "finished":
+            closing_set = max(
+                (i for i in (1, 2, 3, 4, 5)
+                 if parsed_detail.get(f"home_period{i}") is not None
+                 or parsed_detail.get(f"away_period{i}") is not None),
+                default=current_set,
+            )
+            home_current_games = parsed_detail.get(f"home_period{closing_set}") or 0
+            away_current_games = parsed_detail.get(f"away_period{closing_set}") or 0
+            home_pt_s = "0"
+            away_pt_s = "0"
+        else:
+            home_current_games = parsed_detail.get(f"home_period{current_set}") or 0
+            away_current_games = parsed_detail.get(f"away_period{current_set}") or 0
+            home_pt_s = str(home_pt)
+            away_pt_s = str(away_pt)
 
         cur = self._conn.cursor()
         try:
