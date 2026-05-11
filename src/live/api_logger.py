@@ -33,7 +33,8 @@ _log = logging.getLogger(__name__)
 _ARCHIVE_ENDPOINTS = frozenset({"live_matches", "match_details"})
 
 _KNOWN_ENDPOINTS = frozenset(
-    {"live_matches", "events_by_date", "match_details", "point_by_point"}
+    {"live_matches", "events_by_date", "match_details", "point_by_point",
+     "team_detail"}
 )
 
 

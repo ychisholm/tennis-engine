@@ -263,6 +263,21 @@ class TennisFeed:
             poll_cycle_id=poll_cycle_id,
         )
 
+    def get_team_detail(
+        self,
+        team_id: int | str,
+        *,
+        poll_cycle_id: "uuid.UUID | None" = None,
+    ) -> dict:
+        """Fetch /api/tennis/team/{id} — player biographical metadata."""
+        return self._get(
+            f"/api/tennis/team/{team_id}",
+            endpoint="team_detail",
+            params={"team_id": str(team_id)},
+            match_id=None,
+            poll_cycle_id=poll_cycle_id,
+        )
+
     def parse_match_detail(
         self,
         raw: dict,
