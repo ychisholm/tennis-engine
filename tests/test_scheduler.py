@@ -144,6 +144,107 @@ def test_live_to_idle_when_no_live_or_upcoming():
     collector.stop.assert_called_once()
 
 
+def test_imminent_filter_tolerates_slightly_late_api_status():
+    """A match scheduled 60s ago whose status hasn't flipped to inprogress yet
+    must still arm PRE_MATCH. Without the late-slack the imminent filter
+    silently drops it and we wait until the next IDLE tick — sometimes an
+    hour later — to catch the live event."""
+    sched, _feed, collector = _make_scheduler(
+        upcoming=[_upcoming(seconds_from_now=-60)],
+        live_events=[],
+    )
+    sched._check_schedule()
+
+    assert sched.state == "PRE_MATCH"
+    # And the pre-spawn path fires for the late-but-imminent match.
+    collector.spawn_pre_match_worker.assert_called()
+
+
+def test_imminent_filter_rejects_match_too_far_in_past():
+    """If a scheduled match is well past the late-slack window and has no
+    live event, the scheduler must NOT arm PRE_MATCH — that match is gone."""
+    sched, _feed, _collector = _make_scheduler(
+        upcoming=[_upcoming(seconds_from_now=-3600)],
+        live_events=[],
+    )
+    sched._check_schedule()
+
+    assert sched.state == "IDLE"
+
+
+# ---------------------------------------------------------------------------
+# Dynamic IDLE reschedule
+# ---------------------------------------------------------------------------
+
+def test_compute_idle_interval_returns_max_when_no_upcoming():
+    from src.live.scheduler import (
+        _compute_idle_interval, _SCHEDULE_CHECK_IDLE_MAX,
+    )
+    assert _compute_idle_interval([], now=time.time()) == _SCHEDULE_CHECK_IDLE_MAX
+
+
+def test_compute_idle_interval_aims_at_pre_match_window_open():
+    """For a match 40 minutes out, the next tick should fire ~(40m - 15m - 30s)
+    from now so we wake just before the imminent window opens. 40m keeps the
+    expected interval below the max clamp."""
+    from src.live.scheduler import _compute_idle_interval, _PRE_MATCH_WINDOW
+    now = time.time()
+    future = [{"scheduled_start_unix": int(now + 2400)}]  # 40m ahead
+    interval = _compute_idle_interval(future, now)
+    expected = 2400 - _PRE_MATCH_WINDOW - 30
+    assert abs(interval - expected) <= 1
+
+
+def test_compute_idle_interval_clamps_to_min_for_imminent_match():
+    """A match starting in 60s would compute a negative interval; clamp to
+    the floor so we don't spam the API or crash the scheduler."""
+    from src.live.scheduler import (
+        _compute_idle_interval, _SCHEDULE_CHECK_IDLE_MIN,
+    )
+    now = time.time()
+    future = [{"scheduled_start_unix": int(now + 60)}]
+    assert _compute_idle_interval(future, now) == _SCHEDULE_CHECK_IDLE_MIN
+
+
+def test_compute_idle_interval_clamps_to_max_for_very_distant_match():
+    from src.live.scheduler import (
+        _compute_idle_interval, _SCHEDULE_CHECK_IDLE_MAX,
+    )
+    now = time.time()
+    future = [{"scheduled_start_unix": int(now + 86400)}]  # 24h ahead
+    assert _compute_idle_interval(future, now) == _SCHEDULE_CHECK_IDLE_MAX
+
+
+def test_compute_idle_interval_picks_soonest_when_many_upcoming():
+    from src.live.scheduler import _compute_idle_interval, _PRE_MATCH_WINDOW
+    now = time.time()
+    future = [
+        {"scheduled_start_unix": int(now + 86400)},
+        {"scheduled_start_unix": int(now + 3600)},
+        {"scheduled_start_unix": int(now + 7200)},
+    ]
+    interval = _compute_idle_interval(future, now)
+    expected = 3600 - _PRE_MATCH_WINDOW - 30
+    assert abs(interval - expected) <= 1
+
+
+def test_idle_tick_reschedules_to_dynamic_interval():
+    """End-to-end: a check_schedule call that ends in IDLE must reschedule
+    the apscheduler job to the dynamic interval, not the legacy 3600s."""
+    from src.live.scheduler import _PRE_MATCH_WINDOW
+    sched, _feed, _collector = _make_scheduler(
+        upcoming=[_upcoming(seconds_from_now=2400)],  # 40m out
+        live_events=[],
+    )
+    sched._reschedule_job = MagicMock()  # intercept reschedule calls
+    sched._check_schedule()
+
+    assert sched.state == "IDLE"
+    intervals = [c.args[0] for c in sched._reschedule_job.call_args_list]
+    expected = 2400 - _PRE_MATCH_WINDOW - 30
+    assert any(abs(i - expected) <= 1 for i in intervals), intervals
+
+
 # ---------------------------------------------------------------------------
 # MatchWorker fingerprint mutation detection
 # ---------------------------------------------------------------------------

@@ -703,6 +703,28 @@ def test_get_first_server_returns_none_when_score_missing(monkeypatch):
     assert feed.get_first_server(123) is None
 
 
+def test_get_first_server_picks_game_1_when_games_in_descending_order(monkeypatch):
+    """The API returns set 1's games in descending order (latest first).
+    Reading games[0] would return the most recent game's server, not game 1's.
+    With set 1 at 3-2 in progress, the in-progress game 6 is served by the
+    opposite player from game 1; if we blindly read games[0] we'd report the
+    wrong first_server."""
+    feed, _ = _build_logged_feed(monkeypatch, {
+        "pointByPoint": [
+            {"set": 2, "games": [{"game": 1, "score": {"serving": 1}}]},
+            {"set": 1, "games": [
+                {"game": 6, "score": {"serving": 1}},  # in-progress, even ⇒ flips
+                {"game": 5, "score": {"serving": 2}},
+                {"game": 4, "score": {"serving": 1}},
+                {"game": 3, "score": {"serving": 2}},
+                {"game": 2, "score": {"serving": 1}},
+                {"game": 1, "score": {"serving": 2}},  # actual first game
+            ]},
+        ]
+    })
+    assert feed.get_first_server(123) == "away"
+
+
 def test_get_first_server_returns_none_when_no_set1_present(monkeypatch):
     feed, _ = _build_logged_feed(monkeypatch, {
         "pointByPoint": [{"set": 2, "games": [{"game": 1, "score": {"serving": 1}}]}],

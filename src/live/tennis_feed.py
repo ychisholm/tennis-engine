@@ -231,7 +231,15 @@ class TennisFeed:
                 games = entry.get("games") or []
                 if not games:
                     return None
-                serving = (games[0].get("score") or {}).get("serving")
+                # API returns games in descending order; sort ascending and
+                # pick the lowest-numbered game so we read the first game of
+                # set 1, not the most recent. Fall back to index-0 only if
+                # game numbers are missing.
+                first_game = min(
+                    games,
+                    key=lambda g: g.get("game") if g.get("game") is not None else 1,
+                )
+                serving = (first_game.get("score") or {}).get("serving")
                 if serving == 1:
                     return "home"
                 if serving == 2:

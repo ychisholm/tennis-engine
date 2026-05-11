@@ -24,10 +24,17 @@ from apscheduler.schedulers.background import BackgroundScheduler
 _log = logging.getLogger(__name__)
 
 _SCHEDULE_CHECK_INTERVAL = 3600  # legacy constant; retained for compatibility
-_SCHEDULE_CHECK_IDLE     = 3600  # seconds between schedule polls in IDLE
+_SCHEDULE_CHECK_IDLE_MAX = 3600  # upper bound for the dynamic IDLE interval
+_SCHEDULE_CHECK_IDLE_MIN = 60    # lower bound for the dynamic IDLE interval
+_SCHEDULE_CHECK_IDLE     = 3600  # default IDLE interval when no upcoming match
 _SCHEDULE_CHECK_ACTIVE   = 60    # seconds between schedule polls in PRE_MATCH/LIVE
 _PRE_MATCH_WINDOW        = 900   # seconds ahead within which PRE_MATCH arms
 _PRE_SPAWN_WINDOW        = 300   # seconds ahead within which a worker is pre-spawned
+# How long after a match's scheduled start we still treat it as "imminent" if
+# the upstream API hasn't flipped its status to inprogress yet. Without this
+# slack a match scheduled at HH:00 whose status flips at HH:02 falls into a
+# gap: delta is negative so it's no longer imminent, but it isn't live either.
+_PRE_MATCH_LATE_SLACK    = 300
 
 
 class MatchScheduler:
@@ -115,7 +122,7 @@ class MatchScheduler:
         now = time.time()
         imminent = [
             m for m in self._upcoming_matches
-            if 0 <= (m["scheduled_start_unix"] - now) <= _PRE_MATCH_WINDOW
+            if -_PRE_MATCH_LATE_SLACK <= (m["scheduled_start_unix"] - now) <= _PRE_MATCH_WINDOW
         ]
 
         if imminent:
@@ -138,25 +145,34 @@ class MatchScheduler:
             m for m in self._upcoming_matches
             if m["scheduled_start_unix"] > now
         ]
+        next_interval = _compute_idle_interval(future, now)
+        self._reschedule_job(next_interval)
         if future:
             soonest = min(future, key=lambda m: m["scheduled_start_unix"])
             secs = int(soonest["scheduled_start_unix"] - now)
             hours, rem = divmod(secs, 3600)
             mins = rem // 60
             _log.info(
-                "IDLE — next match: %s vs %s in %dh %dm",
+                "IDLE — next match: %s vs %s in %dh %dm; next tick in %ds",
                 soonest["player_a"], soonest["player_b"], hours, mins,
+                next_interval,
             )
         else:
-            _log.info("IDLE — no upcoming matches in schedule window")
+            _log.info(
+                "IDLE — no upcoming matches in schedule window; next tick in %ds",
+                next_interval,
+            )
 
     def _pre_spawn_imminent(self, *, now: float) -> None:
         """For each upcoming match within _PRE_SPAWN_WINDOW seconds, ask the
         collector to spin up a worker now. Idempotent — collector dedupes by
-        match_id, so repeated calls are safe."""
+        match_id, so repeated calls are safe.
+
+        The lower bound mirrors the imminent filter's late-slack so a match
+        whose status hasn't flipped to inprogress yet still gets a worker."""
         to_pre_spawn = [
             m for m in self._upcoming_matches
-            if 0 <= (m["scheduled_start_unix"] - now) <= _PRE_SPAWN_WINDOW
+            if -_PRE_MATCH_LATE_SLACK <= (m["scheduled_start_unix"] - now) <= _PRE_SPAWN_WINDOW
         ]
         for m in to_pre_spawn:
             raw = self._upcoming_raw_by_id.get(int(m["match_id"]))
@@ -209,6 +225,23 @@ class MatchScheduler:
                 detail=f"{prev}->LIVE",
                 poll_cycle_id=cycle_id,
             )
+
+
+def _compute_idle_interval(future: list[dict], now: float) -> int:
+    """Pick the next IDLE-tick interval so we wake up just before the soonest
+    upcoming match's pre-match window opens.
+
+    Returns _SCHEDULE_CHECK_IDLE_MAX when there is no upcoming match. Otherwise
+    returns ``soonest_start - now - _PRE_MATCH_WINDOW - 30s`` clamped to
+    [_SCHEDULE_CHECK_IDLE_MIN, _SCHEDULE_CHECK_IDLE_MAX]. The 30s lead ensures
+    the tick fires inside the 15-min imminent window rather than right on its
+    boundary.
+    """
+    if not future:
+        return _SCHEDULE_CHECK_IDLE_MAX
+    soonest = min(future, key=lambda m: m["scheduled_start_unix"])
+    secs_until_window = int(soonest["scheduled_start_unix"] - now) - _PRE_MATCH_WINDOW - 30
+    return max(_SCHEDULE_CHECK_IDLE_MIN, min(_SCHEDULE_CHECK_IDLE_MAX, secs_until_window))
 
 
 def _summarize_upcoming(event: dict) -> dict:
