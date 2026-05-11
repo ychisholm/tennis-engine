@@ -497,6 +497,42 @@ def test_worker_stops_attempting_after_cap_reached():
     assert w._first_server_attempted_count == 3
 
 
+def test_worker_does_not_attempt_first_server_while_notstarted():
+    """During pre-match polling the API returns no points, so first_server
+    attempts must not consume the retry budget. Otherwise a worker
+    pre-spawned 15+ minutes ahead burns through its cap before the match
+    has any points and first_server stays None forever."""
+    from src.live.collector import MatchWorker
+
+    w = _bare_worker(match_id=206)
+    w._first_server_max_attempts = 3
+    w._feed.get_match_detail.return_value = {"event": {"status": {"type": "notstarted"}}}
+    w._feed.parse_match_detail.return_value = {
+        "match_id": 206, "status": "notstarted", "winner_code": None,
+        "home_sets": 0, "away_sets": 0,
+        "home_period1": 0, "away_period1": 0,
+        "home_period2": None, "away_period2": None,
+        "home_period3": None, "away_period3": None,
+        "home_current_point": "0", "away_current_point": "0",
+    }
+
+    for _ in range(10):
+        MatchWorker._poll(w)
+
+    assert w._feed.get_first_server.call_count == 0
+    assert w._first_server_attempted_count == 0
+
+    # Once status flips to inprogress the budget is intact.
+    w._feed.get_match_detail.return_value = {"event": {"status": {"type": "inprogress"}}}
+    w._feed.parse_match_detail.return_value = _inprogress_parsed(206)
+    w._feed.get_first_server.return_value = "home"
+
+    MatchWorker._poll(w)
+
+    assert w._feed.get_first_server.call_count == 1
+    assert w._first_server == "home"
+
+
 def test_worker_does_not_crash_if_get_first_server_throws():
     from src.live.collector import MatchWorker
 

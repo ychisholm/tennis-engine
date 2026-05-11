@@ -191,6 +191,7 @@ class MatchWorker:
 
             if (
                 self._first_server is None
+                and status == "inprogress"
                 and self._first_server_attempted_count < self._first_server_max_attempts
             ):
                 try:
