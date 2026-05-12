@@ -519,6 +519,7 @@ const { useState, useEffect, useCallback, useRef, useMemo } = React;
 const {
   ComposedChart, Area, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ReferenceLine,
   ResponsiveContainer,
 } = Recharts;
 
@@ -1245,10 +1246,13 @@ function MatchesTab({ active, onSelect }) {
 
 // ─── Match Detail tab (UNCHANGED — preserved exactly as before) ─────────────
 
-function HeroCard({ match, latest, sc, viewPlayer, setViewPlayer, isScrubbing, isFinal: isFinalProp }) {
+function HeroCard({ match, latest, sc, predictions, viewPlayer, setViewPlayer, isScrubbing, isFinal: isFinalProp }) {
   const isFinal = sc?.isFinal ?? isFinalProp;
   const flip    = viewPlayer==='B';
-  const modelP  = !latest ? null : (flip ? (latest.model_prob_a     !=null ? 1-latest.model_prob_a     : null) : latest.model_prob_a);
+  const latestPred = predictions && predictions.length > 0
+    ? predictions[predictions.length - 1]
+    : null;
+  const modelP = latestPred ? latestPred.probability_a : null;
   const bookieP = !latest ? null : (flip ? (latest.bookmaker_prob_a !=null ? 1-latest.bookmaker_prob_a : null) : latest.bookmaker_prob_a);
   const edge    = !latest ? null : (flip ? (latest.edge             !=null ? -latest.edge              : null) : latest.edge);
   const alert   = edge!=null && Math.abs(edge)>0.15;
@@ -1676,11 +1680,161 @@ function MatchStatsCard({ points, playerA, playerB }) {
   );
 }
 
+function SetProbabilityChart({ predictions, playerAName, playerBName }) {
+  const A_COLOR = '#2b1d15'; // var(--ink), Player A
+  const B_COLOR = '#c85a33'; // var(--clay), Player B
+
+  const availableSets = useMemo(() => {
+    const set = new Set();
+    for (const p of (predictions || [])) {
+      if (typeof p.set_number === 'number') set.add(p.set_number);
+    }
+    return [...set].sort((a, b) => a - b);
+  }, [predictions]);
+
+  const maxSet = availableSets.length
+    ? availableSets[availableSets.length - 1]
+    : null;
+
+  const [selectedSet,     setSelectedSet]     = useState(maxSet);
+  const [userSelectedSet, setUserSelectedSet] = useState(false);
+
+  useEffect(() => {
+    if (!userSelectedSet && maxSet != null) {
+      setSelectedSet(maxSet);
+    }
+  }, [maxSet, userSelectedSet]);
+
+  const chartData = useMemo(() => {
+    if (selectedSet == null) return [];
+    return (predictions || [])
+      .filter(p => p.set_number === selectedSet)
+      .slice()
+      .sort((a, b) => (a.game_number_in_set ?? 0) - (b.game_number_in_set ?? 0))
+      .map(p => {
+        const pA = (typeof p.probability_a === 'number') ? p.probability_a : null;
+        return {
+          game: p.game_number_in_set,
+          a_pct: pA != null ? pA * 100 : null,
+          b_pct: pA != null ? (1 - pA) * 100 : null,
+          confidence: (typeof p.confidence === 'number') ? p.confidence : null,
+        };
+      });
+  }, [predictions, selectedSet]);
+
+  const aShort = lastName(playerAName) || 'A';
+  const bShort = lastName(playerBName) || 'B';
+
+  const fmtPct1 = (v) => (typeof v === 'number' && isFinite(v))
+    ? v.toFixed(1) + '%'
+    : '—';
+
+  const TT = ({ active, payload }) => {
+    if (!active || !payload?.length) return null;
+    const d = payload[0]?.payload ?? {};
+    const confPct = (typeof d.confidence === 'number' && isFinite(d.confidence))
+      ? d.confidence * 100
+      : null;
+    return (
+      <div style={{
+        background:'var(--card)', border:'1px solid var(--rule)',
+        borderRadius:8, padding:'8px 12px', fontSize:'0.72rem',
+        boxShadow:'0 4px 16px rgba(43,29,21,.1)', minWidth:150, maxWidth:220,
+      }}>
+        <div style={{fontSize:'0.6rem',letterSpacing:'0.1em',textTransform:'uppercase',
+                     fontWeight:700, color:'var(--ink-3)', marginBottom:5}}>
+          Game {d.game}
+        </div>
+        <div style={{display:'flex',justifyContent:'space-between',gap:14,fontWeight:600}}>
+          <span style={{color:'var(--ink-3)'}}>{aShort}</span>
+          <span style={{color:A_COLOR}}>{fmtPct1(d.a_pct)}</span>
+        </div>
+        <div style={{display:'flex',justifyContent:'space-between',gap:14,fontWeight:600}}>
+          <span style={{color:'var(--ink-3)'}}>{bShort}</span>
+          <span style={{color:B_COLOR}}>{fmtPct1(d.b_pct)}</span>
+        </div>
+        <div style={{display:'flex',justifyContent:'space-between',gap:14,fontWeight:600,
+                     borderTop:'1px solid var(--rule)',paddingTop:3,marginTop:3}}>
+          <span style={{color:'var(--ink-3)'}}>Confidence</span>
+          <span style={{color:'var(--ink)'}}>{fmtPct1(confPct)}</span>
+        </div>
+      </div>
+    );
+  };
+
+  const hasData = chartData.length > 0;
+
+  return (
+    <>
+      <div className="dash-card-hdr">
+        <div className="dash-sec-lbl">Win Probability</div>
+        <div className="dash-toggle">
+          {availableSets.length === 0 ? (
+            <button className="active" disabled>Set —</button>
+          ) : availableSets.map(s => (
+            <button
+              key={s}
+              className={s === selectedSet ? 'active' : ''}
+              onClick={() => { setSelectedSet(s); setUserSelectedSet(true); }}
+            >
+              Set {s}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="chart-wrap" style={{height:300}}>
+        {!hasData ? (
+          <div className="chart-empty" style={{
+            display:'flex', alignItems:'center', justifyContent:'center',
+            height:'100%', padding:0,
+          }}>
+            Predictions will appear after the first game completes.
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={300}>
+            <ComposedChart data={chartData} margin={{top:8, right:14, bottom:18, left:0}}>
+              <CartesianGrid strokeDasharray="3 4" stroke="#d9c6a8"/>
+              <XAxis
+                dataKey="game"
+                type="number"
+                domain={['dataMin', 'dataMax']}
+                allowDecimals={false}
+                tick={{fontSize:10, fill:'#8a6e5a'}}
+                stroke="#d9c6a8"
+                label={{value:'Game', position:'insideBottom', offset:-8, fontSize:11, fill:'#8a6e5a'}}
+              />
+              <YAxis
+                domain={[0, 100]}
+                ticks={[0, 25, 50, 75, 100]}
+                tickFormatter={v => v + '%'}
+                tick={{fontSize:10, fill:'#8a6e5a'}}
+                stroke="#d9c6a8"
+                label={{value:'%', position:'insideLeft', angle:-90, offset:12, fontSize:11, fill:'#8a6e5a'}}
+              />
+              <ReferenceLine y={50} stroke="#8a6e5a" strokeDasharray="4 4" strokeWidth={1}/>
+              <Tooltip content={<TT/>}/>
+              <Line type="monotone" dataKey="a_pct" name={aShort}
+                    stroke={A_COLOR} strokeWidth={2.5}
+                    dot={{r:3, fill:A_COLOR, stroke:A_COLOR}} activeDot={{r:5}}
+                    connectNulls/>
+              <Line type="monotone" dataKey="b_pct" name={bShort}
+                    stroke={B_COLOR} strokeWidth={2.5}
+                    dot={{r:3, fill:B_COLOR, stroke:B_COLOR}} activeDot={{r:5}}
+                    connectNulls/>
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </>
+  );
+}
+
 function MatchDetail({ match, onBack }) {
-  const [allPoints,  setAllPoints]  = useState([]);
-  const [error,      setError]      = useState(null);
-  const [scrubIdx,   setScrubIdx]   = useState(null);
-  const [viewPlayer, setViewPlayer] = useState('A');
+  const [allPoints,   setAllPoints]   = useState([]);
+  const [predictions, setPredictions] = useState([]);
+  const [error,       setError]       = useState(null);
+  const [scrubIdx,    setScrubIdx]    = useState(null);
+  const [viewPlayer,  setViewPlayer]  = useState('A');
   const isScrubbing = scrubIdx !== null;
   const isFinal     = !!match.is_final || match.status === 'final';
 
@@ -1691,12 +1845,23 @@ function MatchDetail({ match, onBack }) {
     } catch(e) { setError(e.message); }
   }, [match.match_id]);
 
+  const fetchPredictions = useCallback(async () => {
+    try {
+      const data = await fetch(`/predictions/${match.match_id}`).then(r => r.json());
+      if (Array.isArray(data)) setPredictions(data);
+    } catch(_) { /* silent — leave predictions unchanged */ }
+  }, [match.match_id]);
+
   useEffect(() => {
     fetchPoints();
+    fetchPredictions();
     if (isScrubbing || isFinal) return;
-    const id = setInterval(fetchPoints, 15_000);
+    const id = setInterval(() => {
+      fetchPoints();
+      fetchPredictions();
+    }, 15_000);
     return () => clearInterval(id);
-  }, [fetchPoints, isScrubbing, isFinal]);
+  }, [fetchPoints, fetchPredictions, isScrubbing, isFinal]);
 
   const visible     = isScrubbing ? allPoints.slice(0, scrubIdx+1) : allPoints;
   const enriched    = useMemo(() => enrichForPlayer(visible, viewPlayer), [visible, viewPlayer]);
@@ -1716,21 +1881,17 @@ function MatchDetail({ match, onBack }) {
         ) : (
           <>
             <HeroCard match={match} latest={latest} sc={latestScore}
+                      predictions={predictions}
                       viewPlayer={viewPlayer} setViewPlayer={setViewPlayer}
                       isScrubbing={isScrubbing} isFinal={isFinal}/>
             <MomentumBar latest={latest} playerA={playerA} playerB={playerB}/>
             <div className="dash-row">
               <div className="dash-card">
-                <div className="dash-card-hdr">
-                  <div className="dash-sec-lbl">Win Probability</div>
-                  <div className="dash-toggle">
-                    <button className={viewPlayer==='A' ? 'active' : ''} onClick={()=>setViewPlayer('A')}>{lastName(playerA)}</button>
-                    <button className={viewPlayer==='B' ? 'active' : ''} onClick={()=>setViewPlayer('B')}>{lastName(playerB)}</button>
-                  </div>
-                </div>
-                <div className="chart-wrap">
-                  <ProbChart data={enriched} viewPlayer={viewPlayer} playerA={playerA} playerB={playerB}/>
-                </div>
+                <SetProbabilityChart
+                  predictions={predictions}
+                  playerAName={playerA}
+                  playerBName={playerB}
+                />
                 <LiveScrubber total={allPoints.length} scrubIdx={scrubIdx}
                               onScrub={idx => setScrubIdx(idx)}
                               onLive={() => setScrubIdx(null)}/>
