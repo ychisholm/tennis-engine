@@ -250,6 +250,9 @@ def test_idle_tick_reschedules_to_dynamic_interval():
 # ---------------------------------------------------------------------------
 
 def _make_worker():
+    """Construct a MatchWorker bypassing __init__, planting every attribute
+    the current ``_poll`` body accesses. Centralizing the planting in one
+    helper keeps the per-test setup minimal."""
     from src.live.collector import MatchWorker
     event = {
         "id": 42,
@@ -267,16 +270,36 @@ def _make_worker():
     w._player_a = event["homeTeam"]["name"]
     w._player_b = event["awayTeam"]["name"]
     w._tournament_id = event["tournament"]["uniqueTournament"]["id"]
-    w._match_metadata = {
-        "homeTeam":   {"name": w._player_a},
-        "awayTeam":   {"name": w._player_b},
-        "tournament": {"uniqueTournament": {"id": w._tournament_id}},
-    }
-    w._last_point_processed = None
-    w._points_seen = 0
     w._tournament_name = "Test Open"
     w._category = "atp"
+    w._country_a = None
+    w._country_b = None
     w._logger = MagicMock()
+    # Attributes the current _poll body reads (collector.py:104+).
+    w._poll_interval = 10
+    w._running = True
+    w._poll_logger = None
+    w._spawned_at = time.time()
+    w._max_runtime_seconds = 6 * 3600
+    w._terminal_non_finished = {"canceled", "postponed", "walkover"}
+    w._cumulative_points = 0
+    w._last_score_state = None
+    w._first_server = None
+    w._first_server_attempted_count = 0
+    w._first_server_max_attempts = 40
+    # Prediction-layer attributes (Phase 6D).
+    w._player_a_id = None
+    w._player_b_id = None
+    w._raw_surface = None
+    w._predictions_enabled = False
+    w._service = None
+    w._adapter = None
+    w._prediction_layer_disabled = False
+    w._service_construct_attempted = False
+    # Legacy attributes preserved for the skipped fingerprint-mutation tests
+    # below — the current _poll body does not read them.
+    w._last_point_processed = None
+    w._points_seen = 0
     _neutral = {"p0_hard": 0.63, "p0_clay": 0.60, "p0_grass": 0.65,
                 "archetype": {"sd": 60, "ba": 60, "pe": 60, "tv": 60}}
     w._player_a_dict = {**_neutral, "name": w._player_a}
@@ -294,6 +317,18 @@ def _make_points(n: int) -> list[dict]:
     ]
 
 
+# The three tests below exercise a fingerprint-mutation-detection code path
+# that the current MatchWorker._poll body no longer contains. The current
+# _poll fetches match-detail snapshots and writes them to match_states; it
+# does not call point-by-point in the inner loop, does not maintain
+# _points_seen, and does not have an _engine attribute. The tests are kept
+# (skipped) as a historical marker; new coverage for current _poll lives in
+# tests/test_collector.py (Phase 6D).
+
+@pytest.mark.skip(
+    reason="legacy: _poll no longer does fingerprint mutation detection "
+           "(see Phase 6D refactor; covered by tests/test_collector.py)"
+)
 def test_mutation_shrinkage_resets_engine():
     """When API returns fewer points than _points_seen, engine must be reset."""
     from src.live.collector import MatchWorker
@@ -316,6 +351,10 @@ def test_mutation_shrinkage_resets_engine():
     assert w._points_seen == 3
 
 
+@pytest.mark.skip(
+    reason="legacy: _poll no longer does fingerprint mutation detection "
+           "(see Phase 6D refactor; covered by tests/test_collector.py)"
+)
 def test_mutation_changed_history_resets_engine():
     """When the last-seen point no longer matches all_points[_points_seen-1], engine must reset."""
     from src.live.collector import MatchWorker
@@ -345,6 +384,10 @@ def test_mutation_changed_history_resets_engine():
     assert w._points_seen == 6
 
 
+@pytest.mark.skip(
+    reason="legacy: _poll no longer does fingerprint mutation detection "
+           "(see Phase 6D refactor; covered by tests/test_collector.py)"
+)
 def test_stable_history_does_not_reset_engine():
     """When history is unchanged, no reset should occur and points_seen advances."""
     from src.live.collector import MatchWorker

@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from src.live.logger import MatchLogger
+from src.live.state_row_adapter import NoLegalPathError, StateRowAdapter
 from src.live.tennis_feed import TennisFeed
+
+if TYPE_CHECKING:
+    from src.live_prediction_service import LivePredictionService
 
 _log = logging.getLogger(__name__)
 
@@ -51,6 +56,13 @@ class MatchWorker:
             .get("category", {})
             .get("slug", "unknown")
         )
+        # Prediction-layer metadata captured from the discovery event. All
+        # three may be missing on the discovery payload (e.g. pre-spawn
+        # before /match-detail has populated groundType); in that case the
+        # worker stays in WAITING state until a later poll surfaces them.
+        self._player_a_id     = (event.get("homeTeam") or {}).get("id")
+        self._player_b_id     = (event.get("awayTeam") or {}).get("id")
+        self._raw_surface     = event.get("groundType")
         self._poll_interval = poll_interval
         self._running       = True
         self._poll_logger   = poll_logger
@@ -70,6 +82,20 @@ class MatchWorker:
         # polls × 10s ≈ 6.5 minutes of attempts — well past when any real match
         # produces its first point.
         self._first_server_max_attempts: int = 40
+
+        # Prediction-layer state machine (see Phase 6D recon).
+        # Per-process opt-in env flag — default off for the first deploy.
+        self._predictions_enabled = (
+            os.environ.get("LIVE_PREDICTIONS_ENABLED", "0").lower()
+            in {"1", "true", "yes"}
+        )
+        # WAITING:   _service is None AND _prediction_layer_disabled is False
+        # ACTIVE:    _service is not None
+        # DISABLED:  _prediction_layer_disabled is True (permanent for match)
+        self._service: Optional["LivePredictionService"] = None
+        self._adapter: Optional[StateRowAdapter] = None
+        self._prediction_layer_disabled: bool = False
+        self._service_construct_attempted: bool = False
 
         self._feed   = TennisFeed(api_key=rapidapi_key)
         self._logger = MatchLogger()
@@ -206,8 +232,9 @@ class MatchWorker:
                     # Already audit-logged via TennisFeed; continue with poll.
                     pass
 
+            upsert_result: Optional[dict] = None
             try:
-                self._logger.upsert_match_detail_points(
+                upsert_result = self._logger.upsert_match_detail_points(
                     parsed_detail, polled_at, first_server=self._first_server,
                 )
             except Exception as exc:
@@ -224,12 +251,51 @@ class MatchWorker:
                         poll_cycle_id=cycle_id,
                     )
 
+            # ── Prediction layer (Phase 6D) ─────────────────────────────
+            # Only acts on polls that produced a fresh INSERT (upsert_result
+            # is the inserted row's dict). Skip paths and ON-CONFLICT
+            # no-ops return None — there's nothing new to feed the engine.
+            if (
+                self._predictions_enabled
+                and not self._prediction_layer_disabled
+                and upsert_result is not None
+            ):
+                if self._service is None:
+                    # WAITING → try ACTIVE. On any unhandled error here,
+                    # disable permanently for this match.
+                    try:
+                        self._ensure_service_started()
+                    except Exception as exc:
+                        _log.warning(
+                            "prediction startup error for match %s: %s",
+                            self._match_id, exc,
+                        )
+                        self._prediction_layer_disabled = True
+                    # Replay (if it ran) covered the just-inserted row.
+                    # If we're still WAITING, nothing else to do this poll.
+                else:
+                    # ACTIVE — feed the just-inserted row through the
+                    # adapter and service.
+                    self._process_prediction_transition(
+                        upsert_result, cycle_id,
+                    )
+
             if parsed_detail.get("winner_code"):
                 _log.info(
                     "%s vs %s (match %s) — complete (winner_code=%s), stopping worker.",
                     self._player_a, self._player_b, self._match_id,
                     parsed_detail["winner_code"],
                 )
+                # Flush the final in-progress game's prediction. Never let
+                # finalize() crash the match-end path.
+                if self._service is not None:
+                    try:
+                        self._service.finalize()
+                    except Exception as exc:
+                        _log.warning(
+                            "service.finalize error for match %s: %s",
+                            self._match_id, exc,
+                        )
                 with _ACTIVE_IDS_LOCK:
                     ACTIVE_MATCH_IDS.discard(self._match_id)
                 self._running = False
@@ -239,6 +305,182 @@ class MatchWorker:
             "%s vs %s — match detail polled",
             self._player_a, self._player_b,
         )
+
+    def _ensure_service_started(self) -> None:
+        """Transition prediction layer from WAITING → ACTIVE.
+
+        Idempotent: returns immediately if the service is already running
+        or the layer is permanently disabled for this match. Returns
+        without side effects if any gate (first_server, player IDs,
+        raw_surface) is unmet so a later poll can retry.
+
+        On any unrecoverable error during construction or replay, sets
+        ``self._prediction_layer_disabled = True`` so subsequent polls
+        skip without retrying. Replay invariant violations also disable
+        permanently — the historical state is unreplayable.
+        """
+        if self._service is not None or self._prediction_layer_disabled:
+            return
+        if self._first_server is None:
+            return
+        if self._player_a_id is None or self._player_b_id is None:
+            return
+        if self._raw_surface is None:
+            return
+
+        self._service_construct_attempted = True
+
+        # Lazy-import the prediction service: joblib model load and
+        # DuckDB read make it heavy to eagerly import at module level,
+        # and test environments may not have those artifacts present.
+        from src.live_prediction_service import LivePredictionService
+
+        try:
+            service = LivePredictionService()
+            service.start_match(
+                match_id_int=self._match_id,
+                player_a=self._player_a,
+                player_b=self._player_b,
+                raw_surface=self._raw_surface,
+                first_server_is_a=(self._first_server == "home"),
+                player_a_id=self._player_a_id,
+                player_b_id=self._player_b_id,
+            )
+            adapter = StateRowAdapter(first_server=self._first_server)
+        except Exception as exc:
+            _log.warning(
+                "failed to construct prediction service for match %s: %s",
+                self._match_id, exc,
+            )
+            self._prediction_layer_disabled = True
+            return
+
+        try:
+            rows = self._logger.fetch_state_rows_for_match(self._match_id)
+        except Exception as exc:
+            _log.warning(
+                "failed to fetch replay rows for match %s: %s",
+                self._match_id, exc,
+            )
+            self._prediction_layer_disabled = True
+            return
+
+        # Mute the logger during replay so historical predictions do not
+        # write to live.predictions. Direct attribute mutation per recon
+        # §7 — the service supports None as a sentinel for "don't log."
+        real_logger = service._prediction_logger
+        service._prediction_logger = None
+        try:
+            prev: Optional[dict] = None
+            for curr in rows:
+                try:
+                    points = adapter.transition(prev, curr)
+                    for pt in points:
+                        service.process_point(pt)
+                except NoLegalPathError as exc:
+                    _log.debug(
+                        "glitch during replay for match %s: %s",
+                        self._match_id, exc.reason,
+                    )
+                except RuntimeError as exc:
+                    _log.warning(
+                        "invariant violation during replay for match %s: %s",
+                        self._match_id, exc,
+                    )
+                    self._prediction_layer_disabled = True
+                    return
+                prev = curr
+        finally:
+            service._prediction_logger = real_logger
+
+        self._service = service
+        self._adapter = adapter
+        _log.info(
+            "prediction service started for match %s (replayed %d rows)",
+            self._match_id, len(rows),
+        )
+
+    def _process_prediction_transition(
+        self,
+        just_inserted: dict,
+        cycle_id: uuid.UUID,
+    ) -> None:
+        """Run the adapter on (prev, curr) and feed Points to the service.
+
+        - ``NoLegalPathError`` (data glitch): log debug, audit
+          PREDICTION_GLITCH, continue.
+        - ``RuntimeError`` from ``service.process_point`` (invariant
+          violation): audit PREDICTION_INVARIANT_VIOLATION and
+          permanently disable the prediction layer for this match.
+        - Any other exception: audit POLL_ERROR and continue (or, for
+          process_point, leave the service running).
+        """
+        prev = just_inserted.get("prev")
+        curr = just_inserted
+        try:
+            points = self._adapter.transition(prev, curr)
+        except NoLegalPathError as exc:
+            _log.debug(
+                "glitch transition for match %s: %s",
+                self._match_id, exc.reason,
+            )
+            poll_logger = getattr(self, "_poll_logger", None)
+            if poll_logger is not None:
+                poll_logger.log(
+                    event_type="PREDICTION_GLITCH",
+                    match_id=self._match_id,
+                    detail=str(exc.reason)[:200],
+                    poll_cycle_id=cycle_id,
+                )
+            return
+        except Exception as exc:
+            _log.warning(
+                "adapter error for match %s: %s", self._match_id, exc,
+            )
+            poll_logger = getattr(self, "_poll_logger", None)
+            if poll_logger is not None:
+                poll_logger.log(
+                    event_type="POLL_ERROR",
+                    match_id=self._match_id,
+                    detail=f"adapter:{exc}"[:200],
+                    poll_cycle_id=cycle_id,
+                )
+            return
+
+        for pt in points:
+            try:
+                self._service.process_point(pt)
+            except RuntimeError as exc:
+                _log.warning(
+                    "prediction invariant violated for match %s: %s",
+                    self._match_id, exc,
+                )
+                poll_logger = getattr(self, "_poll_logger", None)
+                if poll_logger is not None:
+                    poll_logger.log(
+                        event_type="PREDICTION_INVARIANT_VIOLATION",
+                        match_id=self._match_id,
+                        detail=str(exc)[:200],
+                        poll_cycle_id=cycle_id,
+                    )
+                self._prediction_layer_disabled = True
+                self._service = None
+                self._adapter = None
+                return
+            except Exception as exc:
+                _log.warning(
+                    "service.process_point error for match %s: %s",
+                    self._match_id, exc,
+                )
+                poll_logger = getattr(self, "_poll_logger", None)
+                if poll_logger is not None:
+                    poll_logger.log(
+                        event_type="POLL_ERROR",
+                        match_id=self._match_id,
+                        detail=f"predict:{exc}"[:200],
+                        poll_cycle_id=cycle_id,
+                    )
+                return
 
     def stop(self) -> None:
         self._running = False

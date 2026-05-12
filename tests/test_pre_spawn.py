@@ -292,6 +292,16 @@ def _bare_worker(match_id: int = 1, status_terminal=("canceled", "postponed", "w
     w._first_server = None
     w._first_server_attempted_count = 0
     w._first_server_max_attempts = 40
+    # Prediction-layer state (Phase 6D). Disabled by default in this fixture
+    # so existing tests exercise the pre-Phase-6D _poll behavior unchanged.
+    w._player_a_id = None
+    w._player_b_id = None
+    w._raw_surface = None
+    w._predictions_enabled = False
+    w._service = None
+    w._adapter = None
+    w._prediction_layer_disabled = False
+    w._service_construct_attempted = False
     w._feed = MagicMock()
     w._logger = MagicMock()
     return w

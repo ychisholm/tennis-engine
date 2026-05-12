@@ -387,7 +387,7 @@ class MatchLogger:
         parsed_detail: dict,
         polled_at: datetime,
         first_server: str | None = None,
-    ) -> None:
+    ) -> dict | None:
         """Insert one score-state snapshot into live.match_states.
 
         Filters out spurious "0-0" rows that the API briefly emits between
@@ -396,6 +396,15 @@ class MatchLogger:
         from the previous row for this match, and retroactively assigns the
         winner of the previous game's last row when a game boundary is
         detected.
+
+        Returns:
+            On a successful INSERT (cur.rowcount == 1): a dict containing
+            the just-inserted row's columns plus a ``prev`` field carrying
+            the previously-most-recent row for this match (or None if this
+            was the first row).
+
+            Returns None on every skip path (missing data, bogus 0-0,
+            idempotent repoll, ON CONFLICT no-op, DB exception).
         """
         match_id = parsed_detail.get("match_id")
         try:
@@ -403,18 +412,18 @@ class MatchLogger:
         except (ValueError, TypeError):
             match_id_int = None
         if match_id_int is None:
-            return
+            return None
 
         home_pt = parsed_detail.get("home_current_point")
         away_pt = parsed_detail.get("away_current_point")
         if home_pt is None or away_pt is None:
-            return
+            return None
 
         home_sets = parsed_detail.get("home_sets") or 0
         away_sets = parsed_detail.get("away_sets") or 0
         current_set = home_sets + away_sets + 1
         if current_set < 1 or current_set > 5:
-            return
+            return None
 
         # On the terminal 'finished' poll, sets_won already reflects the won
         # match, so period{current_set} points one past the last played set and
@@ -459,7 +468,7 @@ class MatchLogger:
                      home_current_games, away_current_games],
                 )
                 if cur.fetchone():
-                    return
+                    return None
 
             # Skip idempotent repolls: if the most recent row for this match
             # has the identical score state, the 10s poller is just observing
@@ -487,7 +496,7 @@ class MatchLogger:
                 and latest[4] == home_pt_s
                 and latest[5] == away_pt_s
             ):
-                return
+                return None
 
             curr_state = {
                 "home_sets_won": home_sets,
@@ -587,6 +596,10 @@ class MatchLogger:
                 parsed_detail.get("country_b"),
                 first_server,
             ])
+            # Capture rowcount before any subsequent SQL (the retroactive
+            # UPDATE below) overwrites it. 1 = fresh insert, 0 = ON CONFLICT
+            # (match_id, polled_at) DO NOTHING swallowed a duplicate PK.
+            inserted = cur.rowcount
 
             # Retroactive: when this row begins a new game, the previous row
             # was the last point of the prior game. Assign its winner from
@@ -618,6 +631,28 @@ class MatchLogger:
                 )
 
             self._conn.commit()
+            if inserted == 0:
+                return None
+            return {
+                "match_id": match_id_int,
+                "polled_at": polled_at,
+                "status": parsed_detail.get("status"),
+                "home_sets_won": home_sets,
+                "away_sets_won": away_sets,
+                "home_set1_games": curr_state["home_set1_games"],
+                "away_set1_games": curr_state["away_set1_games"],
+                "home_set2_games": curr_state["home_set2_games"],
+                "away_set2_games": curr_state["away_set2_games"],
+                "home_set3_games": curr_state["home_set3_games"],
+                "away_set3_games": curr_state["away_set3_games"],
+                "home_current_games": home_current_games,
+                "away_current_games": away_current_games,
+                "home_current_point": home_pt_s,
+                "away_current_point": away_pt_s,
+                "point_winner": point_winner,
+                "first_server": first_server,
+                "prev": prev,
+            }
         except Exception as exc:
             self._conn.rollback()
             _log.warning(
@@ -643,6 +678,38 @@ class MatchLogger:
                 "backfill_first_server failed for match_id=%s: %s",
                 match_id, exc,
             )
+        finally:
+            cur.close()
+
+    def fetch_state_rows_for_match(self, match_id: int) -> list[dict]:
+        """Fetch all live.match_states rows for a match, ordered by polled_at ASC.
+
+        Used by MatchWorker during prediction-service startup to replay
+        history through the streaming engine. Returns an empty list if
+        no rows exist for the match.
+
+        Columns returned match what StateRowAdapter consumes — see
+        docs/state_machine_integration_recon.md §11 for the canonical
+        replay SELECT.
+        """
+        sql = """
+            SELECT polled_at, status,
+                   home_sets_won, away_sets_won,
+                   home_set1_games, away_set1_games,
+                   home_set2_games, away_set2_games,
+                   home_set3_games, away_set3_games,
+                   home_current_games, away_current_games,
+                   home_current_point, away_current_point,
+                   point_winner, first_server
+            FROM live.match_states
+            WHERE match_id = %s
+            ORDER BY polled_at ASC
+        """
+        cur = self._conn.cursor()
+        try:
+            cur.execute(sql, [int(match_id)])
+            cols = [desc[0] for desc in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
         finally:
             cur.close()
 
