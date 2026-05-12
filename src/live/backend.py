@@ -385,6 +385,43 @@ def dashboard():
     return FileResponse(str(_DASHBOARD), media_type="text/html")
 
 
+@app.get("/predictions/{match_id}")
+def get_predictions(match_id: int) -> list[dict[str, Any]]:
+    """All logged predictions for one match, chronological.
+
+    Lazy-imports prediction_logger so a missing model_v1_metadata.json
+    (which prediction_logger validates at import time) doesn't prevent
+    the backend from starting. Returns [] on any failure so the
+    dashboard's predictions panel stays in its empty state instead of
+    surfacing a 500.
+    """
+    try:
+        from src.prediction_logger import get_predictions_for_match
+    except Exception as exc:
+        _log.warning("predictions endpoint: import failed: %s", exc)
+        return []
+    try:
+        records = get_predictions_for_match(match_id)
+    except Exception as exc:
+        _log.warning("predictions endpoint: query failed for match %s: %s", match_id, exc)
+        return []
+    out: list[dict[str, Any]] = []
+    for r in records:
+        out.append({
+            "match_id_int":       r.match_id_int,
+            "set_number":         r.set_number,
+            "game_number_in_set": r.game_number_in_set,
+            "model_version":      r.model_version,
+            "predicted_at":       _clean_val(r.predicted_at),
+            "player_a_id":        r.player_a_id,
+            "player_b_id":        r.player_b_id,
+            "surface":            r.surface,
+            "probability_a":      _clean_val(r.probability_a),
+            "confidence":         _clean_val(r.confidence),
+        })
+    return out
+
+
 @app.get("/upcoming_matches")
 def upcoming_matches() -> list[dict[str, Any]]:
     try:
