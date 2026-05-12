@@ -336,7 +336,7 @@ class MatchWorker:
         from src.live_prediction_service import LivePredictionService
 
         try:
-            service = LivePredictionService()
+            service = LivePredictionService(p0_lookup={})
             service.start_match(
                 match_id_int=self._match_id,
                 player_a=self._player_a,
