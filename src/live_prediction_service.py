@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Optional
 
 import duckdb
 import joblib
@@ -28,6 +29,7 @@ import numpy as np
 from rapidfuzz import fuzz, process
 
 from src.markov_engine import clear_set_cache, set_win_prob
+from src.prediction_logger import PredictionLogger, get_default_logger
 from src.signal_engine import SIGNAL_COLUMNS
 from src.streaming_signal_engine import StreamingMatchState
 
@@ -44,6 +46,9 @@ class Prediction:
     probability_a: float
     confidence: float
     features: dict[str, float]
+    player_a_id: Optional[int] = None
+    player_b_id: Optional[int] = None
+    surface: Optional[str] = None
 
 
 class _ScoreState:
@@ -102,7 +107,16 @@ class _ScoreState:
 
             self.current_game_pts_a = 0
             self.current_game_pts_b = 0
-            self.current_game_server = int(pt.Svr)
+            # Tiebreak: force server to flip from the prior game. book.points
+            # records a stuck Svr across all tiebreak points; training data
+            # alternates correctly. Either way, recon §7b says the tiebreak
+            # row's server_was_A follows normal serve alternation.
+            if pt.is_tiebreak and self.current_game_server is not None:
+                self.current_game_server = (
+                    2 if self.current_game_server == 1 else 1
+                )
+            else:
+                self.current_game_server = int(pt.Svr)
         elif self.current_game_server is None:
             self.current_game_server = int(pt.Svr)
 
@@ -153,6 +167,8 @@ class LivePredictionService:
         p0_lookup: dict[str, float] | None = None,
         db_path: str = "data/processed/tennis.duckdb",
         league_avg_p0: float = 0.6266,
+        prediction_logger: Optional[PredictionLogger] = None,
+        model_version: str = "v1",
     ) -> None:
         self.model = joblib.load(model_path)
         if type(self.model).__name__ != "CalibratedClassifierCV":
@@ -199,18 +215,33 @@ class LivePredictionService:
         self.p0_b: float | None = None
         self.surface_dummies: dict[str, int] | None = None
         self.first_server_is_a: bool | None = None
+        self.player_a_id: int | None = None
+        self.player_b_id: int | None = None
+        self.raw_surface: str | None = None
         self.finalized: bool = False
         self._last_emitted_server_was_a: bool | None = None
+
+        if prediction_logger is not None:
+            self._prediction_logger: PredictionLogger | None = prediction_logger
+        else:
+            try:
+                self._prediction_logger = get_default_logger()
+            except Exception:
+                self._prediction_logger = None
+        self._model_version: str = model_version
 
     def start_match(
         self,
         match_id_int: int,
         player_a: str,
         player_b: str,
-        surface: str,
+        raw_surface: str,
         first_server_is_a: bool,
         p0_a: float | None = None,
         p0_b: float | None = None,
+        *,
+        player_a_id: int,
+        player_b_id: int,
     ) -> None:
         """Reset per-match state, resolve p0 for both players, and bucket the surface."""
         self.match_id_int = match_id_int
@@ -219,10 +250,14 @@ class LivePredictionService:
         self.finalized = False
         self._last_emitted_server_was_a = None
 
+        self.player_a_id = int(player_a_id)
+        self.player_b_id = int(player_b_id)
+        self.raw_surface = raw_surface
+
         self.p0_a = float(p0_a) if p0_a is not None else self._resolve_p0(player_a)
         self.p0_b = float(p0_b) if p0_b is not None else self._resolve_p0(player_b)
 
-        surface_norm = (surface or "unknown").lower()
+        surface_norm = (raw_surface or "unknown").lower()
         if surface_norm not in _SURFACE_CATEGORIES:
             surface_norm = "unknown"
         self.surface_dummies = {
@@ -344,11 +379,21 @@ class LivePredictionService:
         probability_a = float(proba[1])
         confidence = max(probability_a, 1.0 - probability_a)
 
-        return Prediction(
+        prediction = Prediction(
             match_id_int=self.match_id_int,
             set_number=int(snapshot["set_number"]),
             game_number_in_set=int(snapshot["game_number_in_set"]),
             probability_a=probability_a,
             confidence=confidence,
             features=features,
+            player_a_id=self.player_a_id,
+            player_b_id=self.player_b_id,
+            surface=self.raw_surface,
         )
+
+        if self._prediction_logger is not None:
+            self._prediction_logger.log(
+                prediction, model_version=self._model_version
+            )
+
+        return prediction

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from unittest.mock import MagicMock
 
 import duckdb
 import pytest
@@ -41,6 +42,25 @@ class Pt:
 
 
 # ──────────────── fixtures ────────────────
+
+@pytest.fixture(autouse=True)
+def _no_default_prediction_logger(monkeypatch):
+    """Default to no DB-backed PredictionLogger in tests.
+
+    Patches get_default_logger so LivePredictionService's auto-resolution
+    returns None, keeping these tests hermetic even if DATABASE_URL is
+    set in the local environment. Tests that exercise singleton logic
+    override this patch explicitly.
+    """
+    from src.prediction_logger import _reset_default_logger_for_testing
+    _reset_default_logger_for_testing()
+    monkeypatch.setattr(
+        "src.live_prediction_service.get_default_logger",
+        lambda: None,
+    )
+    yield
+    _reset_default_logger_for_testing()
+
 
 @pytest.fixture(scope="module")
 def con():
@@ -190,7 +210,11 @@ def test_scorestate_first_game_of_next_set_increments_sets_won():
 
 
 def test_scorestate_tiebreak_emits_7_6():
-    """A 6-6 set + a 7-3 tiebreak emits the tiebreak row as games_A=7, games_B=6."""
+    """A 6-6 set + a 7-3 tiebreak emits the tiebreak row as games_A=7, games_B=6.
+
+    The tiebreak row's ``server_was_a`` must flip from the prior game's
+    server (game 12 had Svr=2 → game 13's server_was_a is True).
+    """
     s = _ScoreState()
     base = 1
     # Games 1-12: alternating love holds (game k served by 1 if odd else 2).
@@ -212,6 +236,36 @@ def test_scorestate_tiebreak_emits_7_6():
     assert snap["games_B"] == 6
     assert snap["sets_won_A"] == 0
     assert snap["sets_won_B"] == 0
+    assert snap["server_was_a"] is True
+
+
+def test_scorestate_tiebreak_stuck_server_forced_to_flip():
+    """book.points records the same Svr across all tiebreak points. The
+    score-state must still flip the server_was_a on the tiebreak row to
+    satisfy the §7b convention (and the service's serve-alternation
+    invariant). Without the fix this regressed the smoke test on
+    matches 16098945 and 16159253 (date 2026-05-11).
+    """
+    s = _ScoreState()
+    base = 1
+    # Games 1-12: alternating love holds; game 12 served by 2.
+    for g in range(1, 13):
+        server = 1 if g % 2 == 1 else 2
+        for pt in _love_hold(1, g, base, server=server):
+            s.observe_point(pt)
+        base += 4
+    # Tiebreak (game 13): every point Svr=2 (stuck), matching what
+    # book.points produces. A wins 7-3.
+    tb_winners = [1, 1, 1, 2, 1, 2, 1, 2, 1, 1]
+    for i, w in enumerate(tb_winners):
+        s.observe_point(Pt(1, 13, base + i, f"{i}-0", 2, w, is_tiebreak=True))
+    base += len(tb_winners)
+    snap = s.observe_point(Pt(2, 1, base, "0-0", 2, 2))
+    assert snap is not None
+    assert snap["game_number_in_set"] == 13
+    # Game 12's server_was_a was False; tiebreak row must be True (flipped)
+    # even though every tiebreak point reported Svr=2.
+    assert snap["server_was_a"] is True
 
 
 def test_scorestate_finalize_emits_last_game():
@@ -266,14 +320,17 @@ def test_init_loads_p0_from_db(con, model_files):
 
 def test_start_match_resolves_p0_exact_match(model_files):
     service = _make_minimal_service({"Foo": 0.65, "Bar": 0.60})
-    service.start_match(1, "Foo", "Bar", "hard", True)
+    service.start_match(1, "Foo", "Bar", "hard", True, player_a_id=1, player_b_id=2)
     assert service.p0_a == 0.65
     assert service.p0_b == 0.60
 
 
 def test_start_match_resolves_p0_fuzzy_match(model_files):
     service = _make_minimal_service({"Roger Federer": 0.67, "Rafael Nadal": 0.66})
-    service.start_match(1, "Roger Federerr", "Rafael Nadal", "hard", True)
+    service.start_match(
+        1, "Roger Federerr", "Rafael Nadal", "hard", True,
+        player_a_id=1, player_b_id=2,
+    )
     assert service.p0_a == 0.67  # fuzzy hit ratio >= 90
     assert service.p0_b == 0.66
 
@@ -285,13 +342,19 @@ def test_start_match_p0_league_average_fallback(model_files):
         p0_lookup={"Foo": 0.65},
         league_avg_p0=0.6266,
     )
-    service.start_match(1, "Totally Unknown Player", "Foo", "hard", True)
+    service.start_match(
+        1, "Totally Unknown Player", "Foo", "hard", True,
+        player_a_id=1, player_b_id=2,
+    )
     assert service.p0_a == pytest.approx(0.6266)
 
 
 def test_start_match_p0_overrides(model_files):
     service = _make_minimal_service({"Foo": 0.65, "Bar": 0.60})
-    service.start_match(1, "Foo", "Bar", "hard", True, p0_a=0.70, p0_b=0.50)
+    service.start_match(
+        1, "Foo", "Bar", "hard", True, p0_a=0.70, p0_b=0.50,
+        player_a_id=1, player_b_id=2,
+    )
     assert service.p0_a == 0.70
     assert service.p0_b == 0.50
 
@@ -299,7 +362,7 @@ def test_start_match_p0_overrides(model_files):
 @pytest.mark.parametrize("surface", ["hard", "clay", "grass", "unknown"])
 def test_start_match_surface_each_known(model_files, surface):
     service = _make_minimal_service({"X": 0.6})
-    service.start_match(1, "X", "X", surface, True)
+    service.start_match(1, "X", "X", surface, True, player_a_id=1, player_b_id=2)
     for cat in ("hard", "clay", "grass", "unknown"):
         expected = 1 if cat == surface else 0
         assert service.surface_dummies[f"surface_{cat}"] == expected
@@ -307,7 +370,7 @@ def test_start_match_surface_each_known(model_files, surface):
 
 def test_start_match_surface_carpet_to_unknown(model_files):
     service = _make_minimal_service({"X": 0.6})
-    service.start_match(1, "X", "X", "carpet", True)
+    service.start_match(1, "X", "X", "carpet", True, player_a_id=1, player_b_id=2)
     assert service.surface_dummies == {
         "surface_hard": 0,
         "surface_clay": 0,
@@ -318,7 +381,7 @@ def test_start_match_surface_carpet_to_unknown(model_files):
 
 def test_start_match_surface_mixed_case(model_files):
     service = _make_minimal_service({"X": 0.6})
-    service.start_match(1, "X", "X", "Hard", True)
+    service.start_match(1, "X", "X", "Hard", True, player_a_id=1, player_b_id=2)
     assert service.surface_dummies["surface_hard"] == 1
 
 
@@ -327,7 +390,7 @@ def test_start_match_clears_markov_cache(model_files):
     markov_engine.set_win_prob(0.65, 0.60, 0, 0, True)
     assert len(markov_engine._SET_CACHE) > 0
     service = _make_minimal_service({"X": 0.6})
-    service.start_match(1, "X", "X", "hard", True)
+    service.start_match(1, "X", "X", "hard", True, player_a_id=1, player_b_id=2)
     assert len(markov_engine._SET_CACHE) == 0
 
 
@@ -341,7 +404,7 @@ def test_process_point_before_start_match_raises(model_files):
 
 def test_process_point_after_finalize_raises(model_files):
     service = _make_minimal_service({"X": 0.6})
-    service.start_match(1, "X", "X", "hard", True)
+    service.start_match(1, "X", "X", "hard", True, player_a_id=1, player_b_id=2)
     service.process_point(Pt(1, 1, 1, "0-0", 1, 1))
     service.finalize()
     with pytest.raises(RuntimeError):
@@ -350,7 +413,7 @@ def test_process_point_after_finalize_raises(model_files):
 
 def test_finalize_idempotent(model_files):
     service = _make_minimal_service({"X": 0.6})
-    service.start_match(1, "X", "X", "hard", True)
+    service.start_match(1, "X", "X", "hard", True, player_a_id=1, player_b_id=2)
     service.process_point(Pt(1, 1, 1, "0-0", 1, 1))
     assert service.finalize() is not None
     assert service.finalize() is None
@@ -358,20 +421,20 @@ def test_finalize_idempotent(model_files):
 
 def test_empty_match_finalize_returns_none(model_files):
     service = _make_minimal_service({"X": 0.6})
-    service.start_match(1, "X", "X", "hard", True)
+    service.start_match(1, "X", "X", "hard", True, player_a_id=1, player_b_id=2)
     assert service.finalize() is None
 
 
 def test_process_point_no_emit_mid_game(model_files):
     service = _make_minimal_service({"X": 0.6})
-    service.start_match(1, "X", "X", "hard", True)
+    service.start_match(1, "X", "X", "hard", True, player_a_id=1, player_b_id=2)
     for pt in _love_hold(1, 1, 1, server=1):
         assert service.process_point(pt) is None
 
 
 def test_process_point_emits_at_game_boundary(model_files):
     service = _make_minimal_service({"X": 0.6})
-    service.start_match(99, "X", "X", "hard", True)
+    service.start_match(99, "X", "X", "hard", True, player_a_id=1, player_b_id=2)
     for pt in _love_hold(1, 1, 1, server=1):
         assert service.process_point(pt) is None
     pred = service.process_point(Pt(1, 2, 5, "0-0", 2, 1))
@@ -388,7 +451,7 @@ def test_process_point_emits_at_game_boundary(model_files):
 
 def test_prediction_features_keys_match_feature_names(model_files):
     service = _make_minimal_service({"X": 0.6})
-    service.start_match(99, "X", "X", "hard", True)
+    service.start_match(99, "X", "X", "hard", True, player_a_id=1, player_b_id=2)
     for pt in _love_hold(1, 1, 1, server=1):
         service.process_point(pt)
     pred = service.process_point(Pt(1, 2, 5, "0-0", 2, 1))
@@ -400,7 +463,7 @@ def test_prediction_features_keys_match_feature_names(model_files):
 def test_serve_alternation_invariant_raises(model_files):
     """Two consecutive games served by Svr=1 must trip the invariant on the second emit."""
     service = _make_minimal_service({"X": 0.6})
-    service.start_match(1, "X", "X", "hard", True)
+    service.start_match(1, "X", "X", "hard", True, player_a_id=1, player_b_id=2)
     # Game 1 — Svr=1, A wins all 4.
     for pt in _love_hold(1, 1, 1, server=1):
         service.process_point(pt)
@@ -522,7 +585,10 @@ def test_feature_equivalence_with_training_rows(con, model_files):
         assert points, f"no points for match {mid}"
         first_server_is_a = (points[0].Svr == 1)
 
-        service.start_match(mid, player_a, player_b, surface, first_server_is_a)
+        service.start_match(
+            mid, player_a, player_b, surface, first_server_is_a,
+            player_a_id=1, player_b_id=2,
+        )
         predictions: list[Prediction] = []
         for pt in points:
             r = service.process_point(pt)
@@ -556,3 +622,128 @@ def test_feature_equivalence_with_training_rows(con, model_files):
                         f"(set, game)={key} feature={name!r}: "
                         f"expected={e!r} actual={a!r}"
                     )
+
+
+# ═════════════════ Group G — PredictionLogger integration ═════════════════
+
+def _service_with_logger(
+    mock_logger, *, model_version: str = "v1"
+) -> LivePredictionService:
+    return LivePredictionService(
+        model_path=MODEL_PATH,
+        metadata_path=METADATA_PATH,
+        p0_lookup={"X": 0.6},
+        prediction_logger=mock_logger,
+        model_version=model_version,
+    )
+
+
+def _drive_one_prediction(service: LivePredictionService):
+    """Feed enough points to trigger exactly one emitted prediction."""
+    for pt in _love_hold(1, 1, 1, server=1):
+        service.process_point(pt)
+    return service.process_point(Pt(1, 2, 5, "0-0", 2, 1))
+
+
+class TestPredictionLoggerIntegration:
+    def test_constructor_with_no_logger_arg_and_singleton_unavailable(
+        self, model_files
+    ):
+        # autouse fixture already patches get_default_logger to return None.
+        service = _make_minimal_service({"X": 0.6})
+        assert service._prediction_logger is None
+
+    def test_constructor_with_no_logger_arg_auto_resolves_singleton(
+        self, monkeypatch, model_files
+    ):
+        mock_logger = MagicMock()
+        monkeypatch.setattr(
+            "src.live_prediction_service.get_default_logger",
+            lambda: mock_logger,
+        )
+        service = _make_minimal_service({"X": 0.6})
+        assert service._prediction_logger is mock_logger
+
+    def test_constructor_with_explicit_logger_skips_auto_resolution(
+        self, monkeypatch, model_files
+    ):
+        spy = MagicMock(return_value=None)
+        monkeypatch.setattr(
+            "src.live_prediction_service.get_default_logger", spy
+        )
+        explicit = MagicMock()
+        service = LivePredictionService(
+            model_path=MODEL_PATH,
+            metadata_path=METADATA_PATH,
+            p0_lookup={"X": 0.6},
+            prediction_logger=explicit,
+        )
+        spy.assert_not_called()
+        assert service._prediction_logger is explicit
+
+    def test_process_point_calls_logger_with_complete_prediction(
+        self, model_files
+    ):
+        mock_logger = MagicMock()
+        service = _service_with_logger(mock_logger)
+        service.start_match(
+            99, "X", "X", "Clay", True,
+            player_a_id=42, player_b_id=77,
+        )
+        pred = _drive_one_prediction(service)
+
+        assert isinstance(pred, Prediction)
+        assert mock_logger.log.call_count == 1
+        args, kwargs = mock_logger.log.call_args
+        prediction_arg = args[0] if args else kwargs["prediction"]
+        assert prediction_arg.player_a_id == 42
+        assert prediction_arg.player_b_id == 77
+        assert prediction_arg.surface == "Clay"
+        assert kwargs.get("model_version") == "v1"
+
+    def test_process_point_no_prediction_no_log_call(self, model_files):
+        mock_logger = MagicMock()
+        service = _service_with_logger(mock_logger)
+        service.start_match(
+            1, "X", "X", "hard", True, player_a_id=1, player_b_id=2,
+        )
+        # One mid-game point — no game boundary, no emit, no log.
+        result = service.process_point(Pt(1, 1, 1, "0-0", 1, 1))
+        assert result is None
+        mock_logger.log.assert_not_called()
+
+    def test_logger_failure_does_not_crash_service(self, model_files):
+        mock_logger = MagicMock()
+        mock_logger.log.return_value = None  # PredictionLogger's failure contract
+        service = _service_with_logger(mock_logger)
+        service.start_match(
+            1, "X", "X", "hard", True, player_a_id=1, player_b_id=2,
+        )
+
+        pred = _drive_one_prediction(service)
+
+        assert isinstance(pred, Prediction)
+        assert mock_logger.log.call_count == 1
+
+    def test_explicit_model_version_passed_to_logger(self, model_files):
+        mock_logger = MagicMock()
+        service = _service_with_logger(mock_logger, model_version="experimental_v2")
+        service.start_match(
+            1, "X", "X", "hard", True, player_a_id=1, player_b_id=2,
+        )
+
+        _drive_one_prediction(service)
+
+        _args, kwargs = mock_logger.log.call_args
+        assert kwargs.get("model_version") == "experimental_v2"
+
+    def test_no_logger_no_log_call_no_crash(self, model_files):
+        # autouse fixture already makes get_default_logger return None.
+        service = _make_minimal_service({"X": 0.6})
+        assert service._prediction_logger is None
+        service.start_match(
+            1, "X", "X", "hard", True, player_a_id=1, player_b_id=2,
+        )
+
+        pred = _drive_one_prediction(service)
+        assert isinstance(pred, Prediction)
